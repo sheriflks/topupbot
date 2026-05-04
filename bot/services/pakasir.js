@@ -70,7 +70,9 @@ async function httpGet(endpoint, params) {
  * @param {boolean} qrisOnly - Paksa QRIS saja (opsional)
  */
 function generatePaymentUrl(orderId, amount, redirect = null, qrisOnly = false) {
-  const { slug } = getCfg().pakasir;
+  const cfg = getCfg().pakasir;
+  const slug = cfg.project || cfg.slug || cfg.merchant_id || '';
+  if (!slug) throw new Error('Pakasir project slug belum diisi di config. Buka /admin → API Keys → Pakasir Project.');
   let url = `${BASE_URL}/pay/${slug}/${amount}?order_id=${orderId}`;
   if (redirect) url += `&redirect=${encodeURIComponent(redirect)}`;
   if (qrisOnly) url += `&qris_only=1`;
@@ -94,7 +96,9 @@ function generatePaymentUrl(orderId, amount, redirect = null, qrisOnly = false) 
  * }
  */
 async function createTransaction({ orderId, amount, method = 'qris' }) {
-  const { project, api_key } = getCfg().pakasir;
+  const cfg = getCfg().pakasir;
+  const project = cfg.project || cfg.slug || cfg.merchant_id || '';
+  const api_key = cfg.api_key;
 
   const body = {
     project,
@@ -135,7 +139,9 @@ async function createTransaction({ orderId, amount, method = 'qris' }) {
  * status: "completed" | "pending" | "expired" | "cancelled"
  */
 async function checkTransaction(orderId, amount) {
-  const { project, api_key } = getCfg().pakasir;
+  const cfg = getCfg().pakasir;
+  const project = cfg.project || cfg.slug || cfg.merchant_id || '';
+  const api_key = cfg.api_key;
 
   const res = await httpGet('/api/transactiondetail', {
     project,
@@ -149,7 +155,9 @@ async function checkTransaction(orderId, amount) {
 
 // ─── D. Cancel Transaksi ──────────────────────────────────────────────────────
 async function cancelTransaction(orderId, amount) {
-  const { project, api_key } = getCfg().pakasir;
+  const cfg = getCfg().pakasir;
+  const project = cfg.project || cfg.slug || cfg.merchant_id || '';
+  const api_key = cfg.api_key;
 
   const res = await httpPost('/api/transactioncancel', {
     project,
@@ -163,7 +171,9 @@ async function cancelTransaction(orderId, amount) {
 
 // ─── E. Payment Simulation (Sandbox) ─────────────────────────────────────────
 async function simulatePayment(orderId, amount) {
-  const { project, api_key } = getCfg().pakasir;
+  const cfg = getCfg().pakasir;
+  const project = cfg.project || cfg.slug || cfg.merchant_id || '';
+  const api_key = cfg.api_key;
 
   const res = await httpPost('/api/paymentsimulation', {
     project,
@@ -184,10 +194,11 @@ async function simulatePayment(orderId, amount) {
  */
 function processWebhook(body, storedTransaction) {
   const { amount, order_id, project, status } = body;
-  const { project: cfgProject } = getCfg().pakasir;
+  const cfg = getCfg().pakasir;
+  const cfgProject = cfg.project || cfg.slug || cfg.merchant_id || '';
 
   // Validasi project
-  if (project !== cfgProject) {
+  if (cfgProject && project !== cfgProject) {
     logger.warn('Pakasir', 'Webhook project tidak cocok', { received: project, expected: cfgProject });
     return { valid: false, reason: 'project mismatch' };
   }
