@@ -1,7 +1,7 @@
 {
   "telegram": {
     "token": "8309725407:AAHh1PcmogSxhJ2hxAPcbR1meuEhj7LQxo8",
-    "admin_id": "YOUR_TELE7748125685GRAM_ADMIN_ID"
+    "admin_id": "7748125685"
   },
   "whatsapp": {
     "admin_number": "6285167879598",
@@ -31,9 +31,9 @@
     "snap_url_production": "https://app.midtrans.com/snap/v1"
   },
   "pakasir": {
-    "api_key": "YOUR_PAKASIR_API_KEY",
-    "merchant_id": "YOUR_PAKASIR_MERCHANT_ID",
-    "base_url": "https://pakasir.com/api"
+    "api_key": "5kM3YYt3PrNZoKxAlo92UgBvYmoy1u4q",
+    "project": "sherif-payment",
+    "note": "project = slug proyek Anda di Pakasir. Docs: https://pakasir.com/p/docs"
   },
   "vip_reseller": {
     "api_key": "YOUR_VIP_RESELLER_API_KEY",
@@ -42,15 +42,16 @@
     "pin": "YOUR_VIP_RESELLER_PIN"
   },
   "api_games": {
-    "api_key": "YOUR_API_GAMES_KEY",
-    "secret_key": "YOUR_API_GAMES_SECRET",
-    "base_url": "https://api.apigames.id"
+    "merchant_id": "M260502HUZN6520UT",
+    "secret_key": "8ce8c3ea3a13f8e770d4d099130e1d67f4d565289333bbbe6e9bb7c6a518c57c",
+    "note": "Base URL: https://v1.apigames.id | Docs: https://docs.apigames.id"
   },
   "webhook": {
     "base_url": "https://yourdomain.com",
     "port": 3000,
     "path_midtrans": "/webhook/midtrans",
-    "path_pakasir": "/webhook/pakasir"
+    "path_pakasir": "/webhook/pakasir",
+    "path_apigames": "/webhook/apigames"
   },
   "product_sync": {
     "auto_sync": true,

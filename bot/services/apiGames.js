@@ -1,177 +1,178 @@
 /**
- * apiGames.js - Integrasi API Games (fallback / alternatif)
- * Docs: https://api.apigames.id
+ * apiGames.js - Integrasi API Games v2
+ * Base URL  : https://v1.apigames.id
+ * Auth      : md5(merchant_id:secret_key:ref_id) per transaksi
+ *             md5(merchant_id:secret_key) untuk info akun
+ * Docs      : https://docs.apigames.id
  */
 
-const axios = require('axios');
+'use strict';
+
+const axios  = require('axios');
 const crypto = require('crypto');
-const config = require('../config/config.json');
+const fs     = require('fs');
+const path   = require('path');
 const logger = require('../utils/logger');
 
-const BASE_URL   = config.api_games.base_url;
-const API_KEY    = config.api_games.api_key;
-const SECRET_KEY = config.api_games.secret_key;
+const BASE_URL = 'https://v1.apigames.id';
 
-// ─── Auth ──────────────────────────────────────────────────────────────────────
-
-function makeHeaders() {
-  const ts   = Date.now().toString();
-  const sign = crypto.createHmac('sha256', SECRET_KEY).update(`${API_KEY}${ts}`).digest('hex');
-  return {
-    'Content-Type': 'application/json',
-    'X-Api-Key': API_KEY,
-    'X-Timestamp': ts,
-    'X-Signature': sign
-  };
+// ─── Baca config fresh setiap call (support update via admin panel) ────────────
+function getCfg() {
+  try {
+    return JSON.parse(fs.readFileSync(path.resolve(__dirname, '../config/config.json'), 'utf8'));
+  } catch {
+    return require('../config/config.json');
+  }
 }
 
-// ─── Base Request ──────────────────────────────────────────────────────────────
+// ─── Signature Helpers ─────────────────────────────────────────────────────────
 
-async function get(endpoint, params = {}) {
+/** md5(merchant_id:secret_key) — untuk info akun, cek koneksi */
+function signBasic() {
+  const { merchant_id, secret_key } = getCfg().api_games;
+  return crypto.createHash('md5').update(`${merchant_id}:${secret_key}`).digest('hex');
+}
+
+/** md5(merchant_id:secret_key:ref_id) — untuk transaksi & cek status */
+function signTrx(refId) {
+  const { merchant_id, secret_key } = getCfg().api_games;
+  return crypto.createHash('md5').update(`${merchant_id}:${secret_key}:${refId}`).digest('hex');
+}
+
+// ─── HTTP Helpers ──────────────────────────────────────────────────────────────
+
+async function httpGet(endpoint, params = {}) {
   try {
-    const res = await axios.get(`${BASE_URL}/${endpoint}`, {
-      params, headers: makeHeaders(), timeout: 20000
+    const res = await axios.get(`${BASE_URL}${endpoint}`, {
+      params,
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 20000
     });
     return res.data;
   } catch (err) {
-    logger.error('ApiGames', `GET /${endpoint} gagal`, { msg: err.message });
+    logger.error('ApiGames', `GET ${endpoint} gagal`, { msg: err.message });
     throw err;
   }
 }
 
-async function post(endpoint, body = {}) {
+async function httpPost(endpoint, body = {}) {
   try {
-    const res = await axios.post(`${BASE_URL}/${endpoint}`, body, {
-      headers: makeHeaders(), timeout: 20000
+    const res = await axios.post(`${BASE_URL}${endpoint}`, body, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 20000
     });
     return res.data;
   } catch (err) {
-    logger.error('ApiGames', `POST /${endpoint} gagal`, { msg: err.message });
+    logger.error('ApiGames', `POST ${endpoint} gagal`, { msg: err.message });
     throw err;
   }
 }
 
-// ─── Products ──────────────────────────────────────────────────────────────────
+// ─── Info Akun ─────────────────────────────────────────────────────────────────
+// GET /merchant/{merchant_id}?signature=md5(MERCHANT_ID:SECRET_KEY)
 
-async function getAllProducts() {
-  try {
-    const res = await get('products');
-    return res.data || res.products || [];
-  } catch { return []; }
+async function getAccountInfo() {
+  const { merchant_id } = getCfg().api_games;
+  const sig = signBasic();
+  const res = await httpGet(`/merchant/${merchant_id}`, { signature: sig });
+  return res; // { status, rc, message, data: { saldo, ... } }
 }
 
-async function getGameProducts(gameCode) {
-  try {
-    const res = await get(`products/game/${gameCode}`);
-    return res.data || res.products || [];
-  } catch { return []; }
+// ─── Cek Username Game ─────────────────────────────────────────────────────────
+// GET /merchant/{merchant_id}/cek-username/{game_code}?user_id=...&signature=...
+
+async function checkUsername(gameCode, userId) {
+  const { merchant_id } = getCfg().api_games;
+  const sig = signBasic();
+  const res = await httpGet(`/merchant/${merchant_id}/cek-username/${gameCode}`, {
+    user_id: userId,
+    signature: sig
+  });
+  // Response: { status, rc, data: { is_valid, username } }
+  return res;
 }
 
-async function getPPOBProducts(category) {
-  try {
-    const res = await get(`products/ppob/${category}`);
-    return res.data || res.products || [];
-  } catch { return []; }
-}
-
-// ─── Inquiry ───────────────────────────────────────────────────────────────────
-
-async function inquiry(productCode, target) {
-  try {
-    const res = await post('inquiry', { product_code: productCode, target });
-    return res;
-  } catch (err) {
-    logger.error('ApiGames', 'Inquiry gagal', { productCode, target, msg: err.message });
-    throw err;
-  }
-}
-
-// ─── Order ─────────────────────────────────────────────────────────────────────
+// ─── Transaksi (Order) — POST v2 ──────────────────────────────────────────────
+// POST /v2/transaksi
+// Body: { ref_id, merchant_id, produk, tujuan, server_id, signature }
+// signature = md5(merchant_id:secret_key:ref_id)
+// Response awal SELALU Pending — status final via webhook / cek status
 
 async function createOrder({ orderId, productCode, target, server = '' }) {
-  const res = await post('order', {
-    order_id: orderId,
-    product_code: productCode,
-    target,
-    server
-  });
-  return res;
-}
+  const { merchant_id } = getCfg().api_games;
+  const sig = signTrx(orderId);
 
-async function checkStatus(orderId) {
-  const res = await get(`order/${orderId}`);
-  return res;
-}
-
-// ─── Sync ke productsDB ────────────────────────────────────────────────────────
-
-async function syncAllProducts() {
-  const { productsDB } = require('../utils/jsonDB');
-  const { detectCategory, detectSubCategory } = require('./vipReseller');
-  logger.info('ApiGames', 'Mulai sync produk dari API Games...');
-
-  const allRaw = await getAllProducts();
-  if (!allRaw.length) {
-    logger.warn('ApiGames', 'Tidak ada produk dari API Games');
-    return { synced: 0, source: 'api_games' };
-  }
-
-  let synced = 0;
-  const db = productsDB.read();
-
-  for (const p of allRaw) {
-    const code = `AG_${p.code || p.id}`;
-    if (!code) continue;
-
-    const cat    = detectCategory(p);
-    const subCat = detectSubCategory(p);
-    const isGame = cat === 'game';
-
-    const entry = {
-      code,
-      originalCode: p.code || p.id,
-      name: p.name || code,
-      category: cat,
-      subCategory: subCat,
-      game: p.game || '',
-      gameCode: p.game_code || '',
-      price: parseInt(p.price || 0),
-      status: (p.status || 'active').toLowerCase() === 'active' ? 'active' : 'inactive',
-      isPostpaid: p.is_postpaid === true || false,
-      needServer: p.need_server === true || false,
-      description: p.description || '',
-      source: 'api_games',
-      updatedAt: new Date().toISOString()
-    };
-
-    if (isGame) {
-      if (!db.game) db.game = {};
-      db.game[code] = entry;
-    } else {
-      if (!db.ppob) db.ppob = {};
-      if (!db.ppob[subCat]) db.ppob[subCat] = {};
-      db.ppob[subCat][code] = entry;
-    }
-    synced++;
-  }
-
-  db._meta = {
-    last_sync: new Date().toISOString(),
-    total_products: synced,
-    sync_source: 'api_games'
+  const body = {
+    ref_id:      orderId,
+    merchant_id,
+    produk:      productCode,
+    tujuan:      target,
+    server_id:   server || '',
+    signature:   sig
   };
 
-  productsDB.write(db);
-  logger.info('ApiGames', `Sync selesai: ${synced} produk`);
-  return { synced, source: 'api_games' };
+  const res = await httpPost('/v2/transaksi', body);
+  // res.status === 1 → diterima (Pending)
+  // res.status === 0 → error (signature, produk tidak ada, dll)
+  return res;
+}
+
+// ─── Cek Status Transaksi — POST v2 ───────────────────────────────────────────
+// POST /v2/transaksi/status
+// Body: { ref_id, merchant_id, signature }
+// signature = md5(merchant_id:secret_key:ref_id)
+
+async function checkStatus(refId) {
+  const { merchant_id } = getCfg().api_games;
+  const sig = signTrx(refId);
+
+  const res = await httpPost('/v2/transaksi/status', {
+    ref_id:      refId,
+    merchant_id,
+    signature:   sig
+  });
+  return res;
+  // res.data.status: "Pending" | "Sukses" | "Gagal" | "Proses" | "Sukses Sebagian" | "Validasi Provider"
+}
+
+// ─── Verifikasi Webhook dari APIGames ─────────────────────────────────────────
+// Header: X-Apigames-Authorization = md5(merchant_id:secret_key:ref_id)
+
+function verifyWebhook(headers, refId) {
+  const { merchant_id, secret_key } = getCfg().api_games;
+  const expected = crypto.createHash('md5')
+    .update(`${merchant_id}:${secret_key}:${refId}`)
+    .digest('hex');
+  const received = headers['x-apigames-authorization'] || '';
+  return received === expected;
+}
+
+// ─── Parse Status dari Webhook / Cek Status ───────────────────────────────────
+
+function parseStatus(statusStr) {
+  const s = (statusStr || '').toLowerCase();
+  if (s === 'sukses' || s === 'sukses sebagian') return 'success';
+  if (s === 'gagal') return 'failed';
+  return 'pending'; // Pending, Proses, Validasi Provider → pending
+}
+
+// ─── Sync Produk ke productsDB ────────────────────────────────────────────────
+// APIGames tidak punya endpoint list produk publik — produk dikelola manual
+// atau diambil dari VIP Reseller. Fungsi ini sebagai placeholder.
+
+async function syncAllProducts() {
+  logger.info('ApiGames', 'APIGames tidak menyediakan endpoint list produk. Skip sync.');
+  return { synced: 0, source: 'api_games' };
 }
 
 module.exports = {
-  getAllProducts,
-  getGameProducts,
-  getPPOBProducts,
-  inquiry,
+  getAccountInfo,
+  checkUsername,
   createOrder,
   checkStatus,
-  syncAllProducts
+  verifyWebhook,
+  parseStatus,
+  syncAllProducts,
+  signTrx,
+  signBasic
 };

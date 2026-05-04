@@ -1,1 +1,26 @@
-{}
+{
+  "7748125685": {
+    "id": "7748125685",
+    "name": "sherif",
+    "phone": "6285167879598",
+    "balance": 0,
+    "totalTransactions": 0,
+    "totalCommission": 0,
+    "isReseller": false,
+    "registeredAt": "2026-05-04T09:02:17.303Z",
+    "telegramUsername": "O8888777X",
+    "telegramFirstName": "Reeee"
+  },
+  "6194102379": {
+    "id": "6194102379",
+    "name": "KANZ STORE",
+    "phone": "6285210631038",
+    "balance": 0,
+    "totalTransactions": 0,
+    "totalCommission": 0,
+    "isReseller": false,
+    "registeredAt": "2026-05-04T09:31:07.501Z",
+    "telegramUsername": "itsmekanzz",
+    "telegramFirstName": "Kanz"
+  }
+}

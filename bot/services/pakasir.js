@@ -1,119 +1,239 @@
-const axios = require('axios');
-const crypto = require('crypto');
-const config = require('../config/config.json');
+/**
+ * pakasir.js - Integrasi Pakasir Payment Gateway
+ * Docs  : https://pakasir.com/p/docs
+ * Base  : https://app.pakasir.com
+ *
+ * Dua cara integrasi:
+ *   1. Via URL  → redirect user ke halaman bayar Pakasir (paling simpel)
+ *   2. Via API  → buat transaksi, dapat QR string / VA number
+ *
+ * Auth  : api_key + project (slug) dikirim di body POST / query GET
+ * Webhook: POST dari Pakasir saat pembayaran selesai
+ *   Body: { amount, order_id, project, status:"completed", payment_method, completed_at }
+ */
+
+'use strict';
+
+const axios  = require('axios');
+const fs     = require('fs');
+const path   = require('path');
 const logger = require('../utils/logger');
 
-const BASE_URL = config.pakasir.base_url;
-const API_KEY = config.pakasir.api_key;
-const MERCHANT_ID = config.pakasir.merchant_id;
+const BASE_URL = 'https://app.pakasir.com';
 
-function generateSign(data) {
-  const str = `${MERCHANT_ID}${data.order_id}${data.amount}${API_KEY}`;
-  return crypto.createHash('md5').update(str).digest('hex');
+// ─── Baca config fresh (support update via admin panel) ───────────────────────
+function getCfg() {
+  try {
+    return JSON.parse(fs.readFileSync(path.resolve(__dirname, '../config/config.json'), 'utf8'));
+  } catch {
+    return require('../config/config.json');
+  }
 }
 
-async function createInvoice(params) {
-  const { orderId, amount, customerName, customerPhone, description, expiredMinutes = 60 } = params;
-
-  const payload = {
-    merchant_id: MERCHANT_ID,
-    order_id: orderId,
-    amount: amount,
-    customer_name: customerName,
-    customer_phone: customerPhone,
-    description: description || 'Deposit Saldo TopupBot',
-    expired_time: expiredMinutes,
-    callback_url: `${config.webhook.base_url}/webhook/pakasir`,
-    return_url: `${config.webhook.base_url}/payment/finish`
-  };
-
-  payload.signature = generateSign(payload);
-
+// ─── HTTP Helper ──────────────────────────────────────────────────────────────
+async function httpPost(endpoint, body) {
   try {
-    const response = await axios.post(`${BASE_URL}/invoice/create`, payload, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Api-Key': API_KEY
-      },
+    const res = await axios.post(`${BASE_URL}${endpoint}`, body, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 20000
+    });
+    return res.data;
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message;
+    logger.error('Pakasir', `POST ${endpoint} gagal`, { msg });
+    throw new Error(msg);
+  }
+}
+
+async function httpGet(endpoint, params) {
+  try {
+    const res = await axios.get(`${BASE_URL}${endpoint}`, {
+      params,
       timeout: 15000
     });
-
-    const data = response.data;
-
-    if (data.status === 'success' || data.code === '00') {
-      logger.info('Pakasir', 'Invoice berhasil dibuat', { orderId, amount });
-      return {
-        success: true,
-        invoiceId: data.invoice_id || data.data?.invoice_id,
-        paymentUrl: data.payment_url || data.data?.payment_url,
-        qrCode: data.qr_code || data.data?.qr_code,
-        expiredAt: data.expired_at || data.data?.expired_at,
-        orderId
-      };
-    } else {
-      throw new Error(data.message || 'Gagal membuat invoice Pakasir');
-    }
+    return res.data;
   } catch (err) {
-    logger.error('Pakasir', 'Gagal buat invoice', {
-      error: err.response?.data || err.message,
-      orderId
-    });
-    throw new Error(err.response?.data?.message || 'Gagal membuat invoice Pakasir');
+    const msg = err.response?.data?.message || err.message;
+    logger.error('Pakasir', `GET ${endpoint} gagal`, { msg });
+    throw new Error(msg);
   }
 }
 
-async function checkInvoiceStatus(invoiceId) {
-  try {
-    const response = await axios.get(`${BASE_URL}/invoice/status`, {
-      params: {
-        merchant_id: MERCHANT_ID,
-        invoice_id: invoiceId
-      },
-      headers: {
-        'X-Api-Key': API_KEY
-      },
-      timeout: 10000
-    });
-
-    return response.data;
-  } catch (err) {
-    logger.error('Pakasir', 'Gagal cek status invoice', { error: err.message, invoiceId });
-    throw err;
-  }
+// ─── A. Integrasi Via URL (paling simpel, tidak perlu API) ────────────────────
+/**
+ * Generate URL pembayaran Pakasir
+ * User tinggal diklik ke URL ini → bayar di halaman Pakasir
+ *
+ * @param {string} orderId  - ID order unik
+ * @param {number} amount   - Nominal (tanpa titik/spasi)
+ * @param {string} redirect - URL redirect setelah bayar (opsional)
+ * @param {boolean} qrisOnly - Paksa QRIS saja (opsional)
+ */
+function generatePaymentUrl(orderId, amount, redirect = null, qrisOnly = false) {
+  const { slug } = getCfg().pakasir;
+  let url = `${BASE_URL}/pay/${slug}/${amount}?order_id=${orderId}`;
+  if (redirect) url += `&redirect=${encodeURIComponent(redirect)}`;
+  if (qrisOnly) url += `&qris_only=1`;
+  return url;
 }
 
-function processWebhookNotification(notification) {
-  const { order_id, invoice_id, status, amount, signature } = notification;
+// ─── B. Integrasi Via API ─────────────────────────────────────────────────────
+/**
+ * Buat transaksi via API — dapat QR string / VA number
+ *
+ * @param {object} params
+ * @param {string} params.orderId
+ * @param {number} params.amount
+ * @param {string} params.method  - 'qris' | 'bri_va' | 'bni_va' | 'bca_va' | dll
+ *
+ * Response: {
+ *   payment: {
+ *     project, order_id, amount, fee, total_payment,
+ *     payment_method, payment_number, expired_at
+ *   }
+ * }
+ */
+async function createTransaction({ orderId, amount, method = 'qris' }) {
+  const { project, api_key } = getCfg().pakasir;
 
-  // Verify signature
-  const expectedSign = crypto.createHash('md5')
-    .update(`${MERCHANT_ID}${order_id}${amount}${API_KEY}`)
-    .digest('hex');
+  const body = {
+    project,
+    order_id: orderId,
+    amount:   parseInt(amount),
+    api_key
+  };
 
-  if (signature !== expectedSign) {
-    logger.warn('Pakasir', 'Signature webhook tidak valid', { order_id });
-    return { valid: false };
+  const res = await httpPost(`/api/transactioncreate/${method}`, body);
+
+  if (!res?.payment) {
+    throw new Error(res?.message || 'Gagal membuat transaksi Pakasir');
   }
 
-  let paymentStatus = 'pending';
-  if (status === 'paid' || status === 'success' || status === 'settlement') {
-    paymentStatus = 'success';
-  } else if (status === 'expired' || status === 'failed' || status === 'cancel') {
-    paymentStatus = 'failed';
-  }
+  logger.info('Pakasir', 'Transaksi dibuat', { orderId, amount, method });
 
   return {
-    valid: true,
-    orderId: order_id,
-    invoiceId: invoice_id,
-    status: paymentStatus,
-    amount: parseInt(amount),
-    rawStatus: status
+    success:       true,
+    orderId,
+    method,
+    paymentNumber: res.payment.payment_number,  // QR string atau nomor VA
+    amount:        res.payment.amount,
+    fee:           res.payment.fee,
+    totalPayment:  res.payment.total_payment,
+    expiredAt:     res.payment.expired_at,
+    // URL redirect untuk user (via URL method sebagai fallback)
+    paymentUrl:    generatePaymentUrl(orderId, amount)
   };
 }
 
+// ─── C. Cek Status Transaksi ──────────────────────────────────────────────────
+/**
+ * GET /api/transactiondetail?project=...&amount=...&order_id=...&api_key=...
+ *
+ * Response: {
+ *   transaction: { amount, order_id, project, status, payment_method, completed_at }
+ * }
+ * status: "completed" | "pending" | "expired" | "cancelled"
+ */
+async function checkTransaction(orderId, amount) {
+  const { project, api_key } = getCfg().pakasir;
+
+  const res = await httpGet('/api/transactiondetail', {
+    project,
+    amount:   parseInt(amount),
+    order_id: orderId,
+    api_key
+  });
+
+  return res; // { transaction: { status, ... } }
+}
+
+// ─── D. Cancel Transaksi ──────────────────────────────────────────────────────
+async function cancelTransaction(orderId, amount) {
+  const { project, api_key } = getCfg().pakasir;
+
+  const res = await httpPost('/api/transactioncancel', {
+    project,
+    order_id: orderId,
+    amount:   parseInt(amount),
+    api_key
+  });
+
+  return res;
+}
+
+// ─── E. Payment Simulation (Sandbox) ─────────────────────────────────────────
+async function simulatePayment(orderId, amount) {
+  const { project, api_key } = getCfg().pakasir;
+
+  const res = await httpPost('/api/paymentsimulation', {
+    project,
+    order_id: orderId,
+    amount:   parseInt(amount),
+    api_key
+  });
+
+  return res;
+}
+
+// ─── F. Proses Webhook dari Pakasir ──────────────────────────────────────────
+/**
+ * Pakasir mengirim POST ke webhook URL saat pembayaran selesai
+ * Body: { amount, order_id, project, status:"completed", payment_method, completed_at }
+ *
+ * PENTING: Validasi amount + order_id dengan data di DB kita
+ */
+function processWebhook(body, storedTransaction) {
+  const { amount, order_id, project, status } = body;
+  const { project: cfgProject } = getCfg().pakasir;
+
+  // Validasi project
+  if (project !== cfgProject) {
+    logger.warn('Pakasir', 'Webhook project tidak cocok', { received: project, expected: cfgProject });
+    return { valid: false, reason: 'project mismatch' };
+  }
+
+  // Validasi amount & order_id dengan data di DB
+  if (storedTransaction) {
+    if (parseInt(amount) !== parseInt(storedTransaction.amount)) {
+      logger.warn('Pakasir', 'Webhook amount tidak cocok', { received: amount, stored: storedTransaction.amount });
+      return { valid: false, reason: 'amount mismatch' };
+    }
+  }
+
+  const isCompleted = status === 'completed';
+
+  return {
+    valid:   true,
+    orderId: order_id,
+    status:  isCompleted ? 'success' : 'pending',
+    amount:  parseInt(amount),
+    rawStatus: status,
+    paymentMethod: body.payment_method,
+    completedAt:   body.completed_at
+  };
+}
+
+// ─── G. Daftar Payment Method ─────────────────────────────────────────────────
+const PAYMENT_METHODS = [
+  { code: 'qris',           name: 'QRIS'              },
+  { code: 'bri_va',         name: 'BRI Virtual Account' },
+  { code: 'bni_va',         name: 'BNI Virtual Account' },
+  { code: 'bca_va',         name: 'BCA Virtual Account' },
+  { code: 'cimb_niaga_va',  name: 'CIMB Niaga VA'     },
+  { code: 'sampoerna_va',   name: 'Sampoerna VA'       },
+  { code: 'bnc_va',         name: 'BNC VA'             },
+  { code: 'maybank_va',     name: 'Maybank VA'         },
+  { code: 'permata_va',     name: 'Permata VA'         },
+  { code: 'atm_bersama_va', name: 'ATM Bersama VA'     },
+  { code: 'artha_graha_va', name: 'Artha Graha VA'     }
+];
+
 module.exports = {
-  createInvoice,
-  checkInvoiceStatus,
-  processWebhookNotification
+  generatePaymentUrl,
+  createTransaction,
+  checkTransaction,
+  cancelTransaction,
+  simulatePayment,
+  processWebhook,
+  PAYMENT_METHODS
 };

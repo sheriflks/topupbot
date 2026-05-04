@@ -1,0 +1,6 @@
+node_modules/
+wa_session/
+logs/
+*.log
+.env
+package-lock.json

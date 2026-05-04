@@ -151,13 +151,12 @@ async function processDeposit(bot, chatId, userId, method, amount) {
 
   } else if (method === 'pakasir') {
     try {
-      const result = await pakasir.createInvoice({
+      // Pakasir: gunakan URL method (paling simpel, tidak perlu API key untuk redirect)
+      const paymentUrl = pakasir.generatePaymentUrl(
         orderId,
         amount,
-        customerName: user.name,
-        customerPhone: user.phone,
-        description: `Deposit Saldo ${formatCurrency(amount)}`
-      });
+        `${require('../config/config.json').webhook.base_url}/payment/finish`
+      );
 
       transactionsDB.set(orderId, {
         id: orderId,
@@ -165,8 +164,7 @@ async function processDeposit(bot, chatId, userId, method, amount) {
         type: 'deposit',
         amount,
         paymentMethod: 'pakasir',
-        invoiceId: result.invoiceId,
-        paymentUrl: result.paymentUrl,
+        paymentUrl,
         status: 'pending',
         createdAt: new Date().toISOString()
       });
@@ -175,12 +173,13 @@ async function processDeposit(bot, chatId, userId, method, amount) {
         `🏦 *Deposit via Pakasir*\n\n` +
         `Order ID: \`${orderId}\`\n` +
         `Nominal: *${formatCurrency(amount)}*\n\n` +
+        `Metode tersedia: QRIS, BRI VA, BNI VA, dll\n\n` +
         `Klik tombol di bawah untuk bayar:`,
         {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🏦 Bayar Sekarang', url: result.paymentUrl }],
+              [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
               [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
             ]
           }
@@ -192,7 +191,7 @@ async function processDeposit(bot, chatId, userId, method, amount) {
     } catch (err) {
       logger.error('DepositHandler', 'Gagal buat Pakasir', { msg: err.message });
       await bot.sendMessage(chatId,
-        `❌ Gagal membuat invoice Pakasir.\n\n${err.message}`,
+        `❌ Gagal membuat pembayaran Pakasir.\n\n${err.message}`,
         { reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'menu_deposit' }]] } }
       );
     }

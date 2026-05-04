@@ -16,6 +16,7 @@ const ppobHandler       = require('../handlers/ppobHandler');
 const depositHandler    = require('../handlers/depositHandler');
 const resellerHandler   = require('../handlers/resellerHandler');
 const transactionHandler = require('../handlers/transactionHandler');
+const adminHandler      = require('../handlers/adminHandler');
 
 let botInstance = null;
 
@@ -52,6 +53,13 @@ function initBot() {
       `💰 Saldo Anda: *${formatCurrency(user.balance || 0)}*`,
       { parse_mode: 'Markdown' }
     );
+  });
+
+  // ─── /admin ──────────────────────────────────────────────────────────────────
+  bot.onText(/\/admin/, async (msg) => {
+    await safeHandle('admin', msg.from.id, async () => {
+      await adminHandler.handleAdmin(bot, msg);
+    });
   });
 
   // ─── Text Messages ────────────────────────────────────────────────────────────
@@ -92,6 +100,12 @@ function initBot() {
       // Deposit custom amount
       if (state.flow === 'deposit' && state.step === 'deposit_custom_amount') {
         await depositHandler.handleCustomAmountInput(bot, msg, state);
+        return;
+      }
+
+      // Admin input (Broadcast, Settings, dll)
+      if (state.flow === 'admin') {
+        await adminHandler.handleAdminInput(bot, msg, state);
         return;
       }
     });
@@ -140,6 +154,12 @@ function initBot() {
 // ─── Route Callback ────────────────────────────────────────────────────────────
 
 async function routeCallback(bot, chatId, userId, data, query) {
+
+  // ── Admin Panel ─────────────────────────────────────────────────────────────
+  if (data.startsWith('admin_')) {
+    await adminHandler.handleAdminCallback(bot, chatId, userId, data, query);
+    return;
+  }
 
   // ── Back / Menu Navigasi ────────────────────────────────────────────────────
   if (data === 'back_main') {

@@ -487,21 +487,19 @@ async function createMidtransPayment(bot, chatId, userId, orderId, state, user) 
 
 async function createPakasirPayment(bot, chatId, userId, orderId, state, user) {
   const pakasir = require('../services/pakasir');
+  const cfg = require('../config/config.json');
   const { selectedProduct: product, finalPrice, target, cat } = state;
 
   try {
-    const result = await pakasir.createInvoice({
+    const paymentUrl = pakasir.generatePaymentUrl(
       orderId,
-      amount: finalPrice,
-      customerName: user.name,
-      customerPhone: user.phone,
-      description: `PPOB ${product.name} - ${target}`
-    });
+      finalPrice,
+      `${cfg.webhook.base_url}/payment/finish`
+    );
 
     transactionsDB.set(orderId, {
       ...buildTransaction(orderId, userId, product, target, finalPrice, 'pakasir', cat),
-      invoiceId: result.invoiceId,
-      paymentUrl: result.paymentUrl,
+      paymentUrl,
       status: 'pending'
     });
 
@@ -515,14 +513,14 @@ async function createPakasirPayment(bot, chatId, userId, orderId, state, user) {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🏦 Bayar Sekarang', url: result.paymentUrl }],
+            [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
             [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
           ]
         }
       }
     );
   } catch (err) {
-    await bot.sendMessage(chatId, `❌ Gagal buat invoice: ${err.message}`);
+    await bot.sendMessage(chatId, `❌ Gagal buat pembayaran: ${err.message}`);
   }
 }
 

@@ -348,7 +348,10 @@ async function executeTopupOrder(bot, chatId, userId, orderId, state) {
       });
     }
 
-    const ok = result?.status === 'success' || result?.rc === '00' || result?.code === '00';
+    // APIGames v2: response awal selalu Pending (status === 1)
+    // Status final datang via webhook /webhook/apigames
+    const accepted = result?.status === 1 || result?.status === 'success' || result?.rc === '00';
+    const apiPending = result?.data?.status === 'Pending' || result?.data?.status === 'Proses';
 
     transactionsDB.update(orderId, {
       status: ok ? 'success' : 'failed',
@@ -356,15 +359,26 @@ async function executeTopupOrder(bot, chatId, userId, orderId, state) {
       processedAt: new Date().toISOString()
     });
 
-    if (ok) {
+    if (accepted) {
+      const trxId = result?.data?.trx_id || '-';
+      const sn    = result?.data?.sn || '';
+
+      // Simpan trx_id APIGames untuk cek status nanti
+      transactionsDB.update(orderId, {
+        status: 'pending',
+        apiTrxId: trxId,
+        apiResponse: result,
+        processedAt: new Date().toISOString()
+      });
+
       await bot.sendMessage(chatId,
-        `✅ *TOPUP BERHASIL!*\n\n` +
+        `⏳ *Topup Diproses!*\n\n` +
         `${game?.icon || '🎮'} Produk: *${product.name}*\n` +
         `🎯 User ID: \`${gameUserId}\`\n` +
         `${server ? `🖥️ Server: \`${server}\`\n` : ''}` +
         `Order ID: \`${orderId}\`\n` +
-        `Status: ✅ Sukses\n\n` +
-        `Terima kasih! 🎉`,
+        `Status: ⏳ Pending\n\n` +
+        `Anda akan mendapat notifikasi saat transaksi selesai.`,
         {
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: [[{ text: '🏠 Menu Utama', callback_data: 'back_main' }]] }
@@ -374,30 +388,36 @@ async function executeTopupOrder(bot, chatId, userId, orderId, state) {
       const user = usersDB.get(userId);
       if (user?.phone) {
         await sendNotification(user.phone,
-          `✅ TOPUP BERHASIL\n${game?.icon || '🎮'} ${product.name}\nUser ID: ${gameUserId}\nOrder: ${orderId}`
+          `⏳ Topup diproses\n${game?.icon || '🎮'} ${product.name}\nUser ID: ${gameUserId}\nOrder: ${orderId}`
         );
       }
 
-      // Hitung komisi reseller
       await processCommission(userId, finalPrice);
 
     } else {
+      // status === 0 → error langsung (signature salah, produk tidak ada, dll)
       const user = usersDB.get(userId);
       usersDB.update(userId, {
         balance: (user?.balance || 0) + finalPrice,
         totalTransactions: Math.max(0, (user?.totalTransactions || 1) - 1)
       });
 
+      transactionsDB.update(orderId, {
+        status: 'failed',
+        apiResponse: result,
+        processedAt: new Date().toISOString()
+      });
+
       await bot.sendMessage(chatId,
         `❌ *TOPUP GAGAL*\n\nOrder: \`${orderId}\`\nSaldo dikembalikan.\n\n` +
-        `Pesan: ${result?.message || 'Transaksi gagal'}`,
+        `Pesan: ${result?.error_msg || result?.message || 'Transaksi ditolak'}`,
         {
           parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: [[{ text: '🏠 Menu Utama', callback_data: 'back_main' }]] }
         }
       );
 
-      await sendAdminAlert(`❌ TOPUP GAGAL\nOrder: ${orderId}\nUser: ${userId}\nProduk: ${product.name}`);
+      await sendAdminAlert(`❌ TOPUP DITOLAK\nOrder: ${orderId}\nUser: ${userId}\nProduk: ${product.name}\nError: ${result?.error_msg || '-'}`);
     }
   } catch (err) {
     logger.error('TopupHandler', 'executeTopupOrder error', { msg: err.message, orderId });

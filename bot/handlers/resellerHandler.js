@@ -186,16 +186,16 @@ async function processResellerUpgrade(bot, chatId, userId, paymentMethod) {
 
   } else if (paymentMethod === 'pakasir') {
     try {
-      const result = await pakasir.createInvoice({
-        orderId, amount: fee,
-        customerName: user.name, customerPhone: user.phone,
-        description: 'Aktivasi Reseller TopupBot'
-      });
+      const paymentUrl = pakasir.generatePaymentUrl(
+        orderId,
+        fee,
+        `${require('../config/config.json').webhook.base_url}/payment/finish`
+      );
 
       transactionsDB.set(orderId, {
         id: orderId, userId, type: 'reseller_upgrade',
         amount: fee, paymentMethod: 'pakasir',
-        invoiceId: result.invoiceId, paymentUrl: result.paymentUrl,
+        paymentUrl,
         status: 'pending', createdAt: new Date().toISOString()
       });
 
@@ -207,7 +207,7 @@ async function processResellerUpgrade(bot, chatId, userId, paymentMethod) {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🏦 Bayar Sekarang', url: result.paymentUrl }],
+              [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
               [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
             ]
           }

@@ -117,11 +117,11 @@ class JsonDB {
 
 // ─── Singleton Instances ───────────────────────────────────────────────────────
 
-const usersDB = new JsonDB('./bot/database/users.json', {});
+const usersDB = new JsonDB(path.join(__dirname, '../database/users.json'), {});
 
-const transactionsDB = new JsonDB('./bot/database/transactions.json', {});
+const transactionsDB = new JsonDB(path.join(__dirname, '../database/transactions.json'), {});
 
-const productsDB = new JsonDB('./bot/database/products.json', {
+const productsDB = new JsonDB(path.join(__dirname, '../database/products.json'), {
   game: {},
   ppob: {
     pulsa: {}, data: {}, pln_prepaid: {}, pln_postpaid: {},
@@ -131,6 +131,6 @@ const productsDB = new JsonDB('./bot/database/products.json', {
   _meta: { last_sync: null, total_products: 0 }
 });
 
-const resellerDB = new JsonDB('./bot/database/reseller.json', {});
+const resellerDB = new JsonDB(path.join(__dirname, '../database/reseller.json'), {});
 
 module.exports = { JsonDB, usersDB, transactionsDB, productsDB, resellerDB };
