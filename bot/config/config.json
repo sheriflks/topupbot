@@ -1,0 +1,66 @@
+{
+  "telegram": {
+    "token": "8309725407:AAHh1PcmogSxhJ2hxAPcbR1meuEhj7LQxo8",
+    "admin_id": "YOUR_TELE7748125685GRAM_ADMIN_ID"
+  },
+  "whatsapp": {
+    "admin_number": "6285167879598",
+    "session_path": "./wa_session"
+  },
+  "markup": {
+    "markup_user": 10,
+    "markup_reseller": 5
+  },
+  "commission": {
+    "enabled": true,
+    "rate_user": 0,
+    "rate_reseller": 2,
+    "note": "Komisi dalam persen dari harga jual. Reseller dapat komisi 2% per transaksi."
+  },
+  "reseller": {
+    "upgrade_fee": 50000,
+    "benefits": "Harga lebih murah, markup lebih kecil, komisi per transaksi"
+  },
+  "midtrans": {
+    "server_key": "YOUR_MIDTRANS_SERVER_KEY",
+    "client_key": "YOUR_MIDTRANS_CLIENT_KEY",
+    "is_production": false,
+    "base_url_sandbox": "https://api.sandbox.midtrans.com",
+    "base_url_production": "https://api.midtrans.com",
+    "snap_url_sandbox": "https://app.sandbox.midtrans.com/snap/v1",
+    "snap_url_production": "https://app.midtrans.com/snap/v1"
+  },
+  "pakasir": {
+    "api_key": "YOUR_PAKASIR_API_KEY",
+    "merchant_id": "YOUR_PAKASIR_MERCHANT_ID",
+    "base_url": "https://pakasir.com/api"
+  },
+  "vip_reseller": {
+    "api_key": "YOUR_VIP_RESELLER_API_KEY",
+    "member_id": "YOUR_VIP_RESELLER_MEMBER_ID",
+    "base_url": "https://vip-reseller.co.id/api",
+    "pin": "YOUR_VIP_RESELLER_PIN"
+  },
+  "api_games": {
+    "api_key": "YOUR_API_GAMES_KEY",
+    "secret_key": "YOUR_API_GAMES_SECRET",
+    "base_url": "https://api.apigames.id"
+  },
+  "webhook": {
+    "base_url": "https://yourdomain.com",
+    "port": 3000,
+    "path_midtrans": "/webhook/midtrans",
+    "path_pakasir": "/webhook/pakasir"
+  },
+  "product_sync": {
+    "auto_sync": true,
+    "interval_hours": 6,
+    "on_startup": true
+  },
+  "app": {
+    "name": "TopupBot",
+    "version": "2.0.0",
+    "currency": "IDR",
+    "timezone": "Asia/Jakarta"
+  }
+}

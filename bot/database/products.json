@@ -1,0 +1,23 @@
+{
+  "game": {},
+  "ppob": {
+    "pulsa": {},
+    "data": {},
+    "pln_prepaid": {},
+    "pln_postpaid": {},
+    "pdam": {},
+    "internet": {},
+    "tv": {},
+    "ewallet": {},
+    "voucher": {},
+    "etoll": {},
+    "bpjs": {},
+    "pendidikan": {},
+    "lainnya": {}
+  },
+  "_meta": {
+    "last_sync": null,
+    "total_products": 0,
+    "sync_source": null
+  }
+}

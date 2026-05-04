@@ -1,0 +1,29 @@
+{
+  "product_sync_interval": 3600000,
+  "last_sync": null,
+  "categories": {
+    "game": [
+      "Free Fire",
+      "Mobile Legends",
+      "PUBG Mobile",
+      "Genshin Impact",
+      "Valorant",
+      "Call of Duty Mobile",
+      "Arena of Valor",
+      "Clash of Clans",
+      "Clash Royale",
+      "Honkai Star Rail"
+    ],
+    "ppob": [
+      "Pulsa",
+      "Paket Data",
+      "Listrik PLN",
+      "BPJS Kesehatan",
+      "E-Wallet",
+      "Voucher Google Play",
+      "Voucher Steam",
+      "TV Kabel",
+      "Internet"
+    ]
+  }
+}
