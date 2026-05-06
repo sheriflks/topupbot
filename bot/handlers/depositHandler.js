@@ -11,7 +11,7 @@ const pakasir = require('../services/pakasir');
 const { sendNotification } = require('../services/whatsapp');
 const logger = require('../utils/logger');
 
-const DEPOSIT_AMOUNTS = [10000, 20000, 50000, 100000, 200000, 500000];
+const DEPOSIT_AMOUNTS = [5000, 10000, 20000, 50000, 100000, 200000, 500000];
 
 // ─── Menu Deposit ──────────────────────────────────────────────────────────────
 
@@ -151,40 +151,91 @@ async function processDeposit(bot, chatId, userId, method, amount) {
 
   } else if (method === 'pakasir') {
     try {
-      // Pakasir: gunakan URL method (paling simpel, tidak perlu API key untuk redirect)
-      const paymentUrl = pakasir.generatePaymentUrl(
-        orderId,
-        amount,
-        `${require('../config/config.json').webhook.base_url}/payment/finish`
-      );
+      // Coba API dulu untuk dapat QR image, fallback ke URL jika gagal
+      let paymentUrl = pakasir.generatePaymentUrl(orderId, amount);
+      let qrString   = null;
+      let totalBayar = amount;
+      let expiredAt  = null;
+
+      try {
+        const apiResult = await pakasir.createTransaction({ orderId, amount, method: 'qris' });
+        qrString   = apiResult.paymentNumber;
+        totalBayar = apiResult.totalPayment || amount;
+        expiredAt  = apiResult.expiredAt;
+        paymentUrl = apiResult.paymentUrl;
+      } catch (apiErr) {
+        logger.warn('DepositHandler', 'Pakasir API gagal, pakai URL method', { msg: apiErr.message });
+      }
 
       transactionsDB.set(orderId, {
-        id: orderId,
-        userId,
-        type: 'deposit',
-        amount,
-        paymentMethod: 'pakasir',
-        paymentUrl,
-        status: 'pending',
+        id: orderId, userId, type: 'deposit',
+        amount, paymentMethod: 'pakasir',
+        paymentUrl, status: 'pending',
         createdAt: new Date().toISOString()
       });
 
-      await bot.sendMessage(chatId,
-        `🏦 *Deposit via Pakasir*\n\n` +
-        `Order ID: \`${orderId}\`\n` +
-        `Nominal: *${formatCurrency(amount)}*\n\n` +
-        `Metode tersedia: QRIS, BRI VA, BNI VA, dll\n\n` +
-        `Klik tombol di bawah untuk bayar:`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
-              [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
-            ]
-          }
+      // Kirim QR image jika berhasil dapat dari API
+      if (qrString) {
+        try {
+          const QRCode = require('qrcode');
+          const qrBuffer = await QRCode.toBuffer(qrString, {
+            type: 'png', width: 512, margin: 2,
+            color: { dark: '#000000', light: '#ffffff' }
+          });
+
+          await bot.sendPhoto(chatId, qrBuffer, {
+            caption:
+              `🏦 *Deposit via Pakasir QRIS*\n\n` +
+              `Order ID: \`${orderId}\`\n` +
+              `Nominal: *${formatCurrency(amount)}*\n` +
+              `Total Bayar: *${formatCurrency(totalBayar)}*\n` +
+              `${expiredAt ? `⏰ Expired: ${new Date(expiredAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n` : ''}` +
+              `\n📲 Scan QR di atas atau klik tombol bayar`,
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔗 Buka Halaman Bayar', url: paymentUrl }],
+                [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
+              ]
+            }
+          });
+        } catch (qrErr) {
+          // Fallback kirim teks jika QR image gagal
+          await bot.sendMessage(chatId,
+            `🏦 *Deposit via Pakasir*\n\n` +
+            `Order ID: \`${orderId}\`\n` +
+            `Nominal: *${formatCurrency(amount)}*\n\n` +
+            `Klik tombol untuk bayar via QRIS/VA:`,
+            {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
+                  [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
+                ]
+              }
+            }
+          );
         }
-      );
+      } else {
+        // URL method saja
+        await bot.sendMessage(chatId,
+          `🏦 *Deposit via Pakasir*\n\n` +
+          `Order ID: \`${orderId}\`\n` +
+          `Nominal: *${formatCurrency(amount)}*\n\n` +
+          `Metode: QRIS, BRI VA, BNI VA, dll\n\n` +
+          `Klik tombol untuk bayar:`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
+                [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
+              ]
+            }
+          }
+        );
+      }
 
       logger.info('DepositHandler', `Deposit Pakasir dibuat: ${orderId} - ${amount}`);
 

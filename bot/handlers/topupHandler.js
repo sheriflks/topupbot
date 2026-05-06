@@ -28,10 +28,15 @@ const GAMES = [
   { name: '👑 Clash Royale',     code: 'CR',   needServer: false, icon: '👑' }
 ];
 
-// ─── Markup ────────────────────────────────────────────────────────────────────
-
+// ─── Markup — baca config fresh setiap call ────────────────────────────────────
 function applyMarkup(price, isReseller) {
-  const pct = isReseller ? config.markup.markup_reseller : config.markup.markup_user;
+  const fs   = require('fs');
+  const path = require('path');
+  let cfg;
+  try { cfg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../config/config.json'), 'utf8')); }
+  catch { cfg = config; }
+  const pct = isReseller ? (cfg.markup.markup_reseller || 0) : (cfg.markup.markup_user || 0);
+  if (pct === 0) return parseInt(price); // harga real, tanpa markup
   return Math.ceil(price * (1 + pct / 100));
 }
 
@@ -289,18 +294,14 @@ async function processTopupPayment(bot, chatId, userId, paymentMethod) {
   } else if (paymentMethod === 'pakasir') {
     const pakasir = require('../services/pakasir');
     try {
-      const result = await pakasir.createInvoice({
-        orderId, amount: finalPrice,
-        customerName: user.name, customerPhone: user.phone,
-        description: `Topup ${product.name}`
-      });
+      const paymentUrl = pakasir.generatePaymentUrl(orderId, finalPrice);
 
       transactionsDB.set(orderId, {
         id: orderId, userId, type: 'topup',
         product: { code: product.code, name: product.name },
         gameUserId, server: server || '',
         amount: finalPrice, paymentMethod: 'pakasir',
-        invoiceId: result.invoiceId, paymentUrl: result.paymentUrl,
+        paymentUrl,
         status: 'pending', createdAt: new Date().toISOString()
       });
 
@@ -313,14 +314,14 @@ async function processTopupPayment(bot, chatId, userId, paymentMethod) {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🏦 Bayar Sekarang', url: result.paymentUrl }],
+              [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
               [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
             ]
           }
         }
       );
     } catch (err) {
-      await bot.sendMessage(chatId, `❌ Gagal buat invoice: ${err.message}`);
+      await bot.sendMessage(chatId, `❌ Gagal buat pembayaran: ${err.message}`);
     }
   }
 }
@@ -349,15 +350,9 @@ async function executeTopupOrder(bot, chatId, userId, orderId, state) {
     }
 
     // APIGames v2: response awal selalu Pending (status === 1)
-    // Status final datang via webhook /webhook/apigames
-    const accepted = result?.status === 1 || result?.status === 'success' || result?.rc === '00';
-    const apiPending = result?.data?.status === 'Pending' || result?.data?.status === 'Proses';
-
-    transactionsDB.update(orderId, {
-      status: ok ? 'success' : 'failed',
-      apiResponse: result,
-      processedAt: new Date().toISOString()
-    });
+    // status === 0 = error langsung (signature salah, produk tidak ada)
+    const accepted = result?.status === 1;
+    const directFail = result?.status === 0;
 
     if (accepted) {
       const trxId = result?.data?.trx_id || '-';
@@ -395,7 +390,7 @@ async function executeTopupOrder(bot, chatId, userId, orderId, state) {
       await processCommission(userId, finalPrice);
 
     } else {
-      // status === 0 → error langsung (signature salah, produk tidak ada, dll)
+      // status === 0 → error langsung
       const user = usersDB.get(userId);
       usersDB.update(userId, {
         balance: (user?.balance || 0) + finalPrice,

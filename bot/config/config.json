@@ -8,8 +8,9 @@
     "session_path": "./wa_session"
   },
   "markup": {
-    "markup_user": 10,
-    "markup_reseller": 5
+    "markup_user": 0,
+    "markup_reseller": 0,
+    "note": "Set 0 = harga real dari API. Isi angka % jika ingin tambah keuntungan. Contoh: 5 = +5%"
   },
   "commission": {
     "enabled": true,

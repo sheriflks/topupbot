@@ -22,11 +22,20 @@ const config    = require('../config/config.json');
 const SESSION_PATH = path.resolve(config.whatsapp.session_path || './wa_session');
 
 // ─── State ─────────────────────────────────────────────────────────────────────
-let waSocket      = null;
-let isConnected   = false;
-let isConnecting  = false;
-let qrMsgId       = null;   // message_id pesan QR di Telegram (untuk di-edit)
-let telegramBot   = null;   // referensi bot Telegram untuk kirim QR
+let waSocket         = null;
+let isConnected      = false;
+let isConnecting     = false;
+let qrMsgId          = null;
+let telegramBot      = null;
+let reconnectTimer   = null;
+let reconnectCount   = 0;
+const MAX_RECONNECT  = 10;
+const RECONNECT_BASE = 5000;
+const RECONNECT_MAX  = 120000;
+
+// Anti-spam notif: max 1 notif per 30 detik
+let lastNotifTime    = 0;
+const NOTIF_COOLDOWN = 30000;
 
 // ─── Connect ───────────────────────────────────────────────────────────────────
 
@@ -84,48 +93,79 @@ async function connectWhatsApp(bot) {
         isConnected  = false;
         isConnecting = false;
 
-        const code = lastDisconnect?.error?.output?.statusCode;
+        const code      = lastDisconnect?.error?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
 
-        logger.warn('WhatsApp', 'Koneksi terputus', { code, loggedOut });
+        logger.warn('WhatsApp', 'Koneksi terputus', { code, loggedOut, reconnectCount });
 
-        // Beritahu admin via Telegram
-        await notifyAdminTelegram(
-          loggedOut
-            ? '❌ *WhatsApp Logout!*\n\nSesi dihapus. Silakan connect ulang via /admin.'
-            : '⚠️ *WhatsApp Terputus*\n\nMencoba reconnect otomatis...'
-        );
-
-        if (!loggedOut) {
-          // Auto reconnect setelah 5 detik
-          setTimeout(() => connectWhatsApp(telegramBot), 5000);
-        } else {
-          // Hapus session agar bisa scan QR baru
+        if (loggedOut) {
+          // Logout permanen — notif sekali saja, hapus session, lalu diam
+          logger.warn('WhatsApp', 'Logged out permanen');
+          reconnectCount = 0;
           clearSession();
+          // Hanya notif jika admin sedang aktif (ada qrMsgId = sedang proses connect)
+          if (qrMsgId) {
+            await notifyAdminTelegram('❌ *WhatsApp Logout!*\n\nSilakan connect ulang via /admin → Koneksi WA.');
+          }
+          return;
         }
+
+        // Reconnect dengan exponential backoff — TANPA notif spam
+        if (reconnectCount >= MAX_RECONNECT) {
+          logger.warn('WhatsApp', `Menyerah reconnect setelah ${MAX_RECONNECT}x`);
+          reconnectCount = 0;
+          // Notif hanya sekali saat benar-benar menyerah
+          await notifyAdminTelegram(
+            `❌ *WhatsApp gagal reconnect (${MAX_RECONNECT}x)*\n\nConnect ulang via /admin → Koneksi WA.`
+          );
+          return;
+        }
+
+        const delay = Math.min(RECONNECT_BASE * Math.pow(2, reconnectCount), RECONNECT_MAX);
+        reconnectCount++;
+
+        // TIDAK kirim notif saat reconnect biasa — silent saja
+        logger.info('WhatsApp', `Reconnect ke-${reconnectCount} dalam ${delay}ms`);
+
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => connectWhatsApp(telegramBot), delay);
       }
 
       if (connection === 'open') {
-        isConnected  = true;
-        isConnecting = false;
+        isConnected    = true;
+        isConnecting   = false;
+        reconnectCount = 0;  // reset counter saat berhasil connect
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
         const waNumber = sock.user?.id?.split(':')[0] || '-';
         logger.info('WhatsApp', `✅ Terhubung sebagai ${waNumber}`);
 
-        // Edit pesan QR menjadi "berhasil"
-        await editQRMessage(`✅ *WhatsApp Terhubung!*\n\n📱 Nomor: +${waNumber}\n\nBot siap mengirim notifikasi.`);
-
-        // Simpan nomor WA yang connect ke config runtime
+        await editQRMessage(`✅ *WhatsApp Terhubung!*\n\n📱 Nomor: +${waNumber}\n\nBot siap menerima pesan.`);
         config.whatsapp._connected_number = waNumber;
       }
     });
 
     sock.ev.on('creds.update', saveCreds);
 
+    // ── Incoming Messages dari user WA ────────────────────────────────────────
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      if (type !== 'notify') return;
+      for (const msg of messages) {
+        if (msg.key.fromMe) continue;
+        if (!msg.message) continue;
+        try {
+          const waHandler = require('../handlers/waHandler');
+          await waHandler.handleIncoming(sock, msg);
+        } catch (err) {
+          logger.error('WhatsApp', 'Error handle pesan masuk', { msg: err.message });
+        }
+      }
+    });
+
   } catch (err) {
     isConnecting = false;
     logger.error('WhatsApp', 'connectWhatsApp error', { msg: err.message });
-    await notifyAdminTelegram(`❌ *Gagal connect WA:*\n${err.message}`);
+    // Silent — tidak spam notif ke admin
   }
 }
 
@@ -246,9 +286,12 @@ async function sendNotification(phone, message) {
 }
 
 async function sendAdminAlert(message) {
-  const adminJid = config.whatsapp.admin_number;
-  if (adminJid) await sendMessage(adminJid, `🔔 *ADMIN ALERT*\n\n${message}`);
-  // Juga kirim ke Telegram admin
+  // Kirim ke WA admin jika connect
+  if (isConnected) {
+    const adminJid = config.whatsapp.admin_number;
+    if (adminJid) await sendMessage(adminJid, `🔔 *ADMIN ALERT*\n\n${message}`);
+  }
+  // Kirim ke Telegram admin (selalu, tapi hanya untuk alert transaksi bukan WA status)
   await notifyAdminTelegram(`🔔 *ALERT*\n\n${message}`);
 }
 

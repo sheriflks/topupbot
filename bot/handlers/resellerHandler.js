@@ -186,11 +186,7 @@ async function processResellerUpgrade(bot, chatId, userId, paymentMethod) {
 
   } else if (paymentMethod === 'pakasir') {
     try {
-      const paymentUrl = pakasir.generatePaymentUrl(
-        orderId,
-        fee,
-        `${require('../config/config.json').webhook.base_url}/payment/finish`
-      );
+      const paymentUrl = pakasir.generatePaymentUrl(orderId, fee);
 
       transactionsDB.set(orderId, {
         id: orderId, userId, type: 'reseller_upgrade',

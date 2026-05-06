@@ -31,10 +31,15 @@ const PPOB_CATEGORIES = [
   { code: 'lainnya',      name: '🔧 Lainnya',          icon: '🔧', inputLabel: 'ID Pelanggan',             isPostpaid: false }
 ];
 
-// ─── Markup ────────────────────────────────────────────────────────────────────
-
+// ─── Markup — baca config fresh setiap call ────────────────────────────────────
 function applyMarkup(price, isReseller) {
-  const pct = isReseller ? config.markup.markup_reseller : config.markup.markup_user;
+  const fs   = require('fs');
+  const path = require('path');
+  let cfg;
+  try { cfg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../config/config.json'), 'utf8')); }
+  catch { cfg = config; }
+  const pct = isReseller ? (cfg.markup.markup_reseller || 0) : (cfg.markup.markup_user || 0);
+  if (pct === 0) return parseInt(price);
   return Math.ceil(price * (1 + pct / 100));
 }
 
@@ -491,11 +496,7 @@ async function createPakasirPayment(bot, chatId, userId, orderId, state, user) {
   const { selectedProduct: product, finalPrice, target, cat } = state;
 
   try {
-    const paymentUrl = pakasir.generatePaymentUrl(
-      orderId,
-      finalPrice,
-      `${cfg.webhook.base_url}/payment/finish`
-    );
+    const paymentUrl = pakasir.generatePaymentUrl(orderId, finalPrice);
 
     transactionsDB.set(orderId, {
       ...buildTransaction(orderId, userId, product, target, finalPrice, 'pakasir', cat),
