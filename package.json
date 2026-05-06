@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node start.js",
     "setup": "node setup.js",
+    "update": "chmod +x update.sh && ./update.sh",
     "dev": "nodemon start.js",
     "reset-wa": "node -e \"require('fs').rmSync('./wa_session', {recursive:true,force:true}); console.log('WA session dihapus.');\""
   },
