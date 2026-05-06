@@ -16,16 +16,26 @@ const config = require('../config/config.json');
 // ─── Daftar Game (fallback jika API belum sync) ────────────────────────────────
 
 const GAMES = [
-  { name: '🔥 Free Fire',        code: 'FF',   needServer: false, icon: '🔥' },
-  { name: '⚔️ Mobile Legends',   code: 'ML',   needServer: true,  icon: '⚔️' },
-  { name: '🎯 PUBG Mobile',      code: 'PUBG', needServer: false, icon: '🎯' },
-  { name: '🌟 Genshin Impact',   code: 'GI',   needServer: false, icon: '🌟' },
-  { name: '🎮 Valorant',         code: 'VL',   needServer: false, icon: '🎮' },
-  { name: '💥 Call of Duty',     code: 'CODM', needServer: false, icon: '💥' },
-  { name: '🏆 Arena of Valor',   code: 'AOV',  needServer: false, icon: '🏆' },
-  { name: '⚡ Honkai Star Rail', code: 'HSR',  needServer: false, icon: '⚡' },
-  { name: '🗡️ Clash of Clans',  code: 'COC',  needServer: false, icon: '🗡️' },
-  { name: '👑 Clash Royale',     code: 'CR',   needServer: false, icon: '👑' }
+  { name: '🔥 Free Fire',        code: 'FF',   needServer: false, icon: '🔥', thumb: 'https://telegra.ph/file/9848f070c798707c39ad0.jpg' },
+  { name: '⚔️ Mobile Legends',   code: 'ML',   needServer: true,  icon: '⚔️', thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { name: '🎯 PUBG Mobile',      code: 'PUBG', needServer: false, icon: '🎯', thumb: 'https://telegra.ph/file/6c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🌟 Genshin Impact',   code: 'GI',   needServer: false, icon: '🌟', thumb: 'https://telegra.ph/file/7c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🎮 Valorant',         code: 'VL',   needServer: false, icon: '🎮', thumb: 'https://telegra.ph/file/8c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '💥 Call of Duty',     code: 'CODM', needServer: false, icon: '💥', thumb: 'https://telegra.ph/file/9c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🏆 Arena of Valor',   code: 'AOV',  needServer: false, icon: '🏆', thumb: 'https://telegra.ph/file/ac8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '⚡ Honkai Star Rail', code: 'HSR',  needServer: false, icon: '⚡', thumb: 'https://telegra.ph/file/bc8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🗡️ Clash of Clans',  code: 'COC',  needServer: false, icon: '🗡️', thumb: 'https://telegra.ph/file/cc8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '👑 Clash Royale',     code: 'CR',   needServer: false, icon: '👑', thumb: 'https://telegra.ph/file/dc8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🎱 8 Ball Pool',      code: '8BP',  needServer: false, icon: '🎱', thumb: 'https://telegra.ph/file/ec8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🏀 NBA 2K24',         code: 'NBA',  needServer: false, icon: '🏀', thumb: 'https://telegra.ph/file/fc8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🏎️ Asphalt 9',        code: 'A9',   needServer: false, icon: '🏎️', thumb: 'https://telegra.ph/file/0c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '⚽ FC Mobile',        code: 'FCM',  needServer: false, icon: '⚽', thumb: 'https://telegra.ph/file/1c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🀄 Mahjong Soul',     code: 'MS',   needServer: false, icon: '🀄', thumb: 'https://telegra.ph/file/2c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🧟 State of Survival',code: 'SOS',  needServer: false, icon: '🧟', thumb: 'https://telegra.ph/file/3c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🛡️ Lords Mobile',     code: 'LOM',  needServer: false, icon: '🛡️', thumb: 'https://telegra.ph/file/4c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🐉 Dragon Raja',      code: 'DR',   needServer: false, icon: '🐉', thumb: 'https://telegra.ph/file/5c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '👺 Bleach Soul',      code: 'BS',   needServer: false, icon: '👺', thumb: 'https://telegra.ph/file/6c8e8e8e8e8e8e8e8e8e8.jpg' },
+  { name: '🎭 Ragnarok Origin',  code: 'RO',   needServer: false, icon: '🎭', thumb: 'https://telegra.ph/file/7c8e8e8e8e8e8e8e8e8e8.jpg' }
 ];
 
 // ─── Markup — baca config fresh setiap call ────────────────────────────────────
@@ -90,12 +100,21 @@ async function showGameProducts(bot, chatId, userId, gameCode) {
   );
   rows.push([{ text: '🔙 Kembali', callback_data: 'menu_topup' }]);
 
-  await bot.sendMessage(chatId,
-    `${game.icon} *${game.name}*\n\n` +
-    `${isReseller ? '🏪 Harga Reseller' : '👤 Harga Member'}\n\n` +
-    `Pilih nominal:`,
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } }
-  );
+  const text = `${game.icon} *${game.name}*\n\n` +
+               `${isReseller ? '🏪 Harga Reseller' : '👤 Harga Member'}\n\n` +
+               `Pilih nominal:`;
+
+  if (game.thumb) {
+    await bot.sendPhoto(chatId, game.thumb, {
+      caption: text,
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: rows }
+    }).catch(async () => {
+      await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } });
+    });
+  } else {
+    await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } });
+  }
 }
 
 // ─── Pilih Produk ──────────────────────────────────────────────────────────────

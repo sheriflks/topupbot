@@ -16,19 +16,19 @@ const config = require('../config/config.json');
 // ─── Definisi Kategori PPOB ────────────────────────────────────────────────────
 
 const PPOB_CATEGORIES = [
-  { code: 'pulsa',        name: '📱 Pulsa',           icon: '📱', inputLabel: 'Nomor HP Tujuan',          isPostpaid: false },
-  { code: 'data',         name: '📶 Paket Data',       icon: '📶', inputLabel: 'Nomor HP Tujuan',          isPostpaid: false },
-  { code: 'pln_prepaid',  name: '⚡ Token Listrik',    icon: '⚡', inputLabel: 'Nomor Meter / ID Pelanggan', isPostpaid: false },
-  { code: 'pln_postpaid', name: '💡 Tagihan Listrik',  icon: '💡', inputLabel: 'ID Pelanggan PLN',         isPostpaid: true  },
-  { code: 'pdam',         name: '💧 PDAM',             icon: '💧', inputLabel: 'ID Pelanggan PDAM',        isPostpaid: true  },
-  { code: 'internet',     name: '📡 Internet',         icon: '📡', inputLabel: 'ID Pelanggan / Nomor HP',  isPostpaid: true  },
-  { code: 'tv',           name: '📺 TV Kabel',         icon: '📺', inputLabel: 'ID Pelanggan',             isPostpaid: true  },
-  { code: 'ewallet',      name: '💳 E-Wallet',         icon: '💳', inputLabel: 'Nomor HP / Akun',          isPostpaid: false },
-  { code: 'voucher',      name: '🎮 Voucher Digital',  icon: '🎮', inputLabel: 'Email / Nomor HP',         isPostpaid: false },
-  { code: 'etoll',        name: '🚗 E-Toll',           icon: '🚗', inputLabel: 'Nomor Kartu E-Toll',       isPostpaid: false },
-  { code: 'bpjs',         name: '🏥 BPJS',             icon: '🏥', inputLabel: 'Nomor BPJS',               isPostpaid: true  },
-  { code: 'pendidikan',   name: '🎓 Pendidikan',       icon: '🎓', inputLabel: 'Nomor VA / ID Siswa',      isPostpaid: true  },
-  { code: 'lainnya',      name: '🔧 Lainnya',          icon: '🔧', inputLabel: 'ID Pelanggan',             isPostpaid: false }
+  { code: 'pulsa',        name: '📱 Pulsa',           icon: '📱', inputLabel: 'Nomor HP Tujuan',          isPostpaid: false, thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'data',         name: '📶 Paket Data',       icon: '📶', inputLabel: 'Nomor HP Tujuan',          isPostpaid: false, thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'pln_prepaid',  name: '⚡ Token Listrik',    icon: '⚡', inputLabel: 'Nomor Meter / ID Pelanggan', isPostpaid: false, thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'pln_postpaid', name: '💡 Tagihan Listrik',  icon: '💡', inputLabel: 'ID Pelanggan PLN',         isPostpaid: true,  thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'pdam',         name: '💧 PDAM',             icon: '💧', inputLabel: 'ID Pelanggan PDAM',        isPostpaid: true,  thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'internet',     name: '📡 Internet',         icon: '📡', inputLabel: 'ID Pelanggan / Nomor HP',  isPostpaid: true,  thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'tv',           name: '📺 TV Kabel',         icon: '📺', inputLabel: 'ID Pelanggan',             isPostpaid: true,  thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'ewallet',      name: '💳 E-Wallet',         icon: '💳', inputLabel: 'Nomor HP / Akun',          isPostpaid: false, thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'voucher',      name: '🎮 Voucher Digital',  icon: '🎮', inputLabel: 'Email / Nomor HP',         isPostpaid: false, thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'etoll',        name: '🚗 E-Toll',           icon: '🚗', inputLabel: 'Nomor Kartu E-Toll',       isPostpaid: false, thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'bpjs',         name: '🏥 BPJS',             icon: '🏥', inputLabel: 'Nomor BPJS',               isPostpaid: true,  thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'pendidikan',   name: '🎓 Pendidikan',       icon: '🎓', inputLabel: 'Nomor VA / ID Siswa',      isPostpaid: true,  thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' },
+  { code: 'lainnya',      name: '🔧 Lainnya',          icon: '🔧', inputLabel: 'ID Pelanggan',             isPostpaid: false, thumb: 'https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg' }
 ];
 
 // ─── Markup — baca config fresh setiap call ────────────────────────────────────
@@ -92,11 +92,19 @@ async function handleCategorySelect(bot, chatId, userId, catCode) {
     products
   });
 
-  await bot.sendMessage(chatId,
-    `${cat.icon} *${cat.name}*\n\n` +
-    `📝 Masukkan *${cat.inputLabel}*:`,
-    { parse_mode: 'Markdown' }
-  );
+  const text = `${cat.icon} *${cat.name}*\n\n` +
+               `📝 Masukkan *${cat.inputLabel}*:`;
+
+  if (cat.thumb) {
+    await bot.sendPhoto(chatId, cat.thumb, {
+      caption: text,
+      parse_mode: 'Markdown'
+    }).catch(async () => {
+      await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+    });
+  } else {
+    await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+  }
 }
 
 // ─── Input Target → Pilih Produk / Inquiry ────────────────────────────────────

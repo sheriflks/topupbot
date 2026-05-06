@@ -124,17 +124,36 @@ async function handleRegistration(bot, msg, state) {
 // ─── Kirim Menu Utama ──────────────────────────────────────────────────────────
 
 async function sendMainMenu(bot, chatId, user) {
-  const hour = new Date().getHours();
-  const greet = hour < 12 ? '🌅 Selamat pagi' : hour < 15 ? '☀️ Selamat siang' : hour < 18 ? '🌤️ Selamat sore' : '🌙 Selamat malam';
-
-  await bot.sendMessage(chatId,
-    `${greet}, *${user.name}!* 👋\n\n` +
+  const cfg = require('../config/config.json');
+  const text =
+    `👋 *Halo, ${user.name}!*\n` +
+    `Selamat datang di *${cfg.app.bot_name}*\n\n` +
     `💰 Saldo: *${formatCurrency(user.balance || 0)}*\n` +
-    `📊 Transaksi: *${user.totalTransactions || 0}*\n` +
-    `${user.isReseller ? '🏪 Status: *Reseller* ✅' : '👤 Status: *Member*'}\n\n` +
-    `Pilih menu:`,
-    { parse_mode: 'Markdown', reply_markup: getMainMenuKeyboard() }
-  );
+    `🏪 Status: *${user.isReseller ? 'Reseller' : 'Member'}*\n\n` +
+    `Silakan pilih layanan kami:`;
+
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: '🎮 Direct Topup Game', callback_data: 'menu_topup' }],
+      [{ text: '⚡ PPOB & Tagihan',    callback_data: 'menu_ppob'  }],
+      [{ text: '👤 Profil & Saldo',   callback_data: 'menu_profile' }, { text: '📜 Riwayat', callback_data: 'menu_history' }],
+      [{ text: 'ℹ️ Bantuan',          callback_data: 'menu_help'    }]
+    ]
+  };
+
+  if (cfg.app.bot_thumbnail) {
+    try {
+      await bot.sendPhoto(chatId, cfg.app.bot_thumbnail, {
+        caption: text,
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      });
+    } catch (err) {
+      await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: keyboard });
+    }
+  } else {
+    await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: keyboard });
+  }
 }
 
 // ─── Profile ───────────────────────────────────────────────────────────────────
