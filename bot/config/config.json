@@ -69,6 +69,10 @@
     "bot_thumbnail": "https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg",
     "version": "2.0.0",
     "currency": "IDR",
-    "timezone": "Asia/Jakarta"
+    "timezone": "Asia/Jakarta",
+    "thumbnails": {
+      "games": {},
+      "ppob": {}
+    }
   }
 }

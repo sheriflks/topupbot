@@ -72,6 +72,7 @@ async function handleCategorySelect(bot, chatId, userId, catCode) {
   if (!cat) return;
 
   const products = getPPOBProducts(catCode);
+  const cfg = require('../config/config.json');
 
   if (products.length === 0) {
     await bot.sendMessage(chatId,
@@ -95,13 +96,18 @@ async function handleCategorySelect(bot, chatId, userId, catCode) {
   const text = `${cat.icon} *${cat.name}*\n\n` +
                `📝 Masukkan *${cat.inputLabel}*:`;
 
-  if (cat.thumb) {
-    await bot.sendPhoto(chatId, cat.thumb, {
-      caption: text,
-      parse_mode: 'Markdown'
-    }).catch(async () => {
+  const customThumb = cfg.app.thumbnails?.ppob?.[catCode];
+  const thumbToUse = customThumb || cat.thumb;
+
+  if (thumbToUse) {
+    try {
+      await bot.sendPhoto(chatId, thumbToUse, {
+        caption: text,
+        parse_mode: 'Markdown'
+      });
+    } catch (err) {
       await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
-    });
+    }
   } else {
     await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
   }

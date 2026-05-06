@@ -72,6 +72,7 @@ async function showGameProducts(bot, chatId, userId, gameCode) {
 
   const user = usersDB.get(userId);
   const isReseller = user?.isReseller || false;
+  const cfg = require('../config/config.json');
 
   // Ambil dari DB (sudah sync dari API)
   let products = getGameProducts(gameCode);
@@ -104,14 +105,19 @@ async function showGameProducts(bot, chatId, userId, gameCode) {
                `${isReseller ? '🏪 Harga Reseller' : '👤 Harga Member'}\n\n` +
                `Pilih nominal:`;
 
-  if (game.thumb) {
-    await bot.sendPhoto(chatId, game.thumb, {
-      caption: text,
-      parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: rows }
-    }).catch(async () => {
+  const customThumb = cfg.app.thumbnails?.games?.[gameCode];
+  const thumbToUse = customThumb || game.thumb;
+
+  if (thumbToUse) {
+    try {
+      await bot.sendPhoto(chatId, thumbToUse, {
+        caption: text,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: rows }
+      });
+    } catch (err) {
       await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } });
-    });
+    }
   } else {
     await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: rows } });
   }
