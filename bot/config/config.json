@@ -1,7 +1,7 @@
 {
   "telegram": {
     "token": "8738003744:AAG9UWyT3m4Ik_9IpZ6eQ5-1kSZLbkQwEXU",
-    "admin_id": "6194102379"
+    "admin_ids": ["6194102379"]
   },
   "whatsapp": {
     "admin_number": "6285167879598",

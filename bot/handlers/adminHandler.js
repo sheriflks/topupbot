@@ -49,7 +49,8 @@ function getPayment() {
 // ─── Cek Admin ─────────────────────────────────────────────────────────────────
 function isAdmin(userId) {
   const cfg = getConfig();
-  return String(userId) === String(cfg.telegram.admin_id);
+  const admins = Array.isArray(cfg.telegram.admin_ids) ? cfg.telegram.admin_ids : [cfg.telegram.admin_id];
+  return admins.map(id => String(id)).includes(String(userId));
 }
 
 // ─── /admin command ────────────────────────────────────────────────────────────
@@ -105,13 +106,14 @@ async function sendAdminPanel(bot, chatId, messageId = null) {
       ],
       [
         { text: '💸 Withdrawals',  callback_data: 'admin_withdrawals' },
-        { text: '⚙️ Settings',     callback_data: 'admin_settings'  }
+        { text: '🛡️ Kelola Admin',  callback_data: 'admin_manage_list' }
       ],
       [
-        { text: '🔑 API Keys',     callback_data: 'admin_apikeys'  },
-        { text: '💰 Markup',       callback_data: 'admin_markup'   }
+        { text: '⚙️ Settings',     callback_data: 'admin_settings'  },
+        { text: '🔑 API Keys',     callback_data: 'admin_apikeys'  }
       ],
       [
+        { text: '💰 Markup',       callback_data: 'admin_markup'   },
         { text: '❌ Tutup Panel',   callback_data: 'admin_close'    }
       ]
     ]
@@ -168,6 +170,15 @@ async function handleAdminCallback(bot, chatId, userId, data, query) {
   if (data === 'admin_bot_identity')   { await showBotIdentitySettings(bot, chatId, messageId); return; }
   if (data === 'admin_set_bot_name')    { await bot.answerCallbackQuery(query.id); menuHandler.setUserState(userId, { flow: 'admin', step: 'set_bot_name', msgId: messageId }); await bot.sendMessage(chatId, '📝 Masukkan *Nama Bot* baru:'); return; }
   if (data === 'admin_set_bot_thumb')   { await bot.answerCallbackQuery(query.id); menuHandler.setUserState(userId, { flow: 'admin', step: 'set_bot_thumb', msgId: messageId }); await bot.sendMessage(chatId, '🖼️ Masukkan *URL Thumbnail* baru (Link Gambar):'); return; }
+
+  // ── Admin Management ─────────────────────────────────────────────────────────
+  if (data === 'admin_manage_list')     { await showAdminList(bot, chatId, messageId); return; }
+  if (data === 'admin_add_new')         { await bot.answerCallbackQuery(query.id); menuHandler.setUserState(userId, { flow: 'admin', step: 'add_admin_id', msgId: messageId }); await bot.sendMessage(chatId, '📝 Masukkan *Telegram User ID* yang ingin dijadikan admin:'); return; }
+  if (data.startsWith('admin_del_')) {
+    const targetId = data.replace('admin_del_', '');
+    await handleDeleteAdmin(bot, chatId, userId, targetId, messageId);
+    return;
+  }
 
   // ── Stats & Users ─────────────────────────────────────────────────────────────
   if (data === 'admin_stats')          { await showStats(bot, chatId, messageId); return; }
@@ -553,6 +564,26 @@ async function handleAdminInput(bot, msg, state) {
     saveConfig(c);
     await bot.sendMessage(chatId, `✅ Thumbnail Bot berhasil diperbarui.`);
     await showBotIdentitySettings(bot, chatId, msgId);
+    return;
+  }
+
+  if (state.step === 'add_admin_id') {
+    const targetId = text.trim();
+    if (!/^\d+$/.test(targetId)) {
+      await bot.sendMessage(chatId, '❌ ID harus berupa angka.');
+      return;
+    }
+    const c = getConfig();
+    if (!c.telegram.admin_ids) c.telegram.admin_ids = [c.telegram.admin_id];
+    if (c.telegram.admin_ids.includes(targetId)) {
+      await bot.sendMessage(chatId, '❌ User tersebut sudah menjadi admin.');
+    } else {
+      c.telegram.admin_ids.push(targetId);
+      saveConfig(c);
+      await bot.sendMessage(chatId, `✅ Berhasil menambah admin baru: \`${targetId}\``, { parse_mode: 'Markdown' });
+    }
+    menuHandler.clearUserState(userId);
+    await showAdminList(bot, chatId, msgId);
     return;
   }
 
@@ -997,6 +1028,64 @@ async function showBotIdentitySettings(bot, chatId, messageId) {
       reply_markup: keyboard
     }).catch(() => {});
   }
+}
+
+/**
+ * Manajemen List Admin
+ */
+async function showAdminList(bot, chatId, messageId) {
+  const cfg = getConfig();
+  const admins = Array.isArray(cfg.telegram.admin_ids) ? cfg.telegram.admin_ids : [cfg.telegram.admin_id];
+  
+  let text = `🛡️ *MANAJEMEN ADMIN*\n` +
+             `━━━━━━━━━━━━━━━━━━━━━━\n` +
+             `Daftar Admin saat ini:\n\n`;
+  
+  const keyboard = { inline_keyboard: [] };
+  
+  admins.forEach((id, index) => {
+    text += `${index + 1}. \`${id}\`\n`;
+    // Jangan izinkan hapus diri sendiri jika hanya sisa 1 admin
+    if (admins.length > 1) {
+      keyboard.inline_keyboard.push([{ text: `❌ Hapus Admin ${id}`, callback_data: `admin_del_${id}` }]);
+    }
+  });
+
+  text += `━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `Klik tombol di bawah untuk menambah admin baru.`;
+
+  keyboard.inline_keyboard.push([{ text: '➕ Tambah Admin Baru', callback_data: 'admin_add_new' }]);
+  keyboard.inline_keyboard.push([{ text: '🔙 Kembali', callback_data: 'admin_main' }]);
+
+  await bot.editMessageText(text, {
+    chat_id: chatId, message_id: messageId,
+    parse_mode: 'Markdown',
+    reply_markup: keyboard
+  }).catch(async () => {
+    // Jika gagal edit (misal karena pesan sebelumnya foto), kirim baru
+    await bot.sendMessage(chatId, text, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  });
+}
+
+async function handleDeleteAdmin(bot, chatId, requesterId, targetId, messageId) {
+  if (String(requesterId) === String(targetId)) {
+    return bot.sendMessage(chatId, '❌ Anda tidak bisa menghapus diri sendiri dari daftar admin.');
+  }
+
+  const c = getConfig();
+  const admins = Array.isArray(c.telegram.admin_ids) ? c.telegram.admin_ids : [c.telegram.admin_id];
+  
+  const newAdmins = admins.filter(id => String(id) !== String(targetId));
+  if (newAdmins.length === admins.length) return;
+
+  c.telegram.admin_ids = newAdmins;
+  saveConfig(c);
+
+  await bot.sendMessage(chatId, `✅ Berhasil menghapus admin \`${targetId}\`.`, { parse_mode: 'Markdown' });
+  await showAdminList(bot, chatId, messageId);
 }
 
 /**
