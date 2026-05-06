@@ -355,11 +355,56 @@ async function processPPOBPayment(bot, chatId, userId, paymentMethod) {
 
     await executePPOBOrder(bot, chatId, userId, orderId, state);
 
-  } else if (paymentMethod === 'midtrans') {
-    await createMidtransPayment(bot, chatId, userId, orderId, state, user);
+  } else if (paymentMethod === 'orkut') {
+    const { getEngine } = require('../services/paymentEngine');
+    const engine = getEngine();
+    
+    try {
+      await bot.sendMessage(chatId, '⏳ Sedang menggenerate QRIS, mohon tunggu...');
+      
+      const { reference, totalPay, qrBuffer, timeoutMs } = await engine.createOrder({
+        userId,
+        username: user.name,
+        baseAmount: finalPrice,
+        meta: {
+          order_type: 'ppob',
+          product_code: product.code,
+          product_name: product.name,
+          target,
+          cat_code: cat.code
+        }
+      });
 
-  } else if (paymentMethod === 'pakasir') {
-    await createPakasirPayment(bot, chatId, userId, orderId, state, user);
+      const expiresAt = new Date(Date.now() + timeoutMs).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+
+      transactionsDB.set(reference, {
+        ...buildTransaction(reference, userId, product, target, finalPrice, 'orkut_qris', cat, inquiryData),
+        totalPay,
+        status: 'pending',
+        expiresAt: new Date(Date.now() + timeoutMs).toISOString()
+      });
+
+      await bot.sendPhoto(chatId, qrBuffer, {
+        caption:
+          `📸 *PEMBAYARAN QRIS (OTOMATIS)*\n\n` +
+          `${cat.icon} *${product.name}*\n` +
+          `🎯 Tujuan: \`${target}\`\n` +
+          `💰 Nominal: *${formatCurrency(finalPrice)}*\n` +
+          `💸 Total Bayar: *${formatCurrency(totalPay)}*\n\n` +
+          `⚠️ *PENTING:* Bayar sesuai nominal hingga 3 digit terakhir!\n\n` +
+          `⏰ Expired: *${expiresAt}*\n\n` +
+          `Setelah bayar, klik tombol *Cek Status* di bawah.`,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔄 Cek Status Pembayaran', callback_data: `check_pay_${reference}` }],
+            [{ text: '❌ Batalkan', callback_data: `cancel_pay_${reference}` }]
+          ]
+        }
+      });
+    } catch (err) {
+      await bot.sendMessage(chatId, `❌ Gagal buat pembayaran: ${err.message}`);
+    }
   }
 }
 
@@ -531,8 +576,7 @@ function buildPaymentKeyboard(balance, price) {
   return {
     inline_keyboard: [
       [{ text: `💰 Bayar Saldo (${formatCurrency(balance)})`, callback_data: 'ppob_pay_balance' }],
-      [{ text: '💳 Midtrans (Transfer/QRIS/dll)', callback_data: 'ppob_pay_midtrans' }],
-      [{ text: '🏦 Pakasir', callback_data: 'ppob_pay_pakasir' }],
+      [{ text: '📸 QRIS (Otomatis)', callback_data: 'ppob_pay_orkut' }],
       [{ text: '❌ Batal', callback_data: 'back_main' }]
     ]
   };

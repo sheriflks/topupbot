@@ -17,6 +17,7 @@ const depositHandler    = require('../handlers/depositHandler');
 const resellerHandler   = require('../handlers/resellerHandler');
 const transactionHandler = require('../handlers/transactionHandler');
 const adminHandler      = require('../handlers/adminHandler');
+const withdrawHandler   = require('../handlers/withdrawHandler');
 
 let botInstance = null;
 
@@ -108,6 +109,12 @@ function initBot() {
         await adminHandler.handleAdminInput(bot, msg, state);
         return;
       }
+
+      // Withdraw input
+      if (state.flow === 'withdraw') {
+        await withdrawHandler.handleWithdrawInput(bot, msg, state);
+        return;
+      }
     });
   });
 
@@ -177,6 +184,7 @@ async function routeCallback(bot, chatId, userId, data, query) {
   if (data === 'menu_profile')      { await menuHandler.handleProfile(bot, chatId, userId); return; }
   if (data === 'menu_reseller')     { await resellerHandler.showResellerInfo(bot, chatId, userId); return; }
   if (data === 'menu_help')         { await menuHandler.handleHelp(bot, chatId); return; }
+  if (data === 'menu_withdraw')     { await withdrawHandler.showWithdrawMenu(bot, chatId, userId); return; }
 
   // ── Topup Game ──────────────────────────────────────────────────────────────
   if (data.startsWith('game_')) {
@@ -192,8 +200,7 @@ async function routeCallback(bot, chatId, userId, data, query) {
   }
 
   if (data === 'pay_balance')   { await topupHandler.processTopupPayment(bot, chatId, userId, 'balance'); return; }
-  if (data === 'pay_midtrans')  { await topupHandler.processTopupPayment(bot, chatId, userId, 'midtrans'); return; }
-  if (data === 'pay_pakasir')   { await topupHandler.processTopupPayment(bot, chatId, userId, 'pakasir'); return; }
+  if (data === 'pay_orkut')    { await topupHandler.processTopupPayment(bot, chatId, userId, 'orkut'); return; }
 
   // ── PPOB ────────────────────────────────────────────────────────────────────
   if (data.startsWith('ppob_cat_')) {
@@ -209,15 +216,13 @@ async function routeCallback(bot, chatId, userId, data, query) {
   }
 
   if (data === 'ppob_pay_balance')  { await ppobHandler.processPPOBPayment(bot, chatId, userId, 'balance'); return; }
-  if (data === 'ppob_pay_midtrans') { await ppobHandler.processPPOBPayment(bot, chatId, userId, 'midtrans'); return; }
-  if (data === 'ppob_pay_pakasir')  { await ppobHandler.processPPOBPayment(bot, chatId, userId, 'pakasir'); return; }
+  if (data === 'ppob_pay_orkut')    { await ppobHandler.processPPOBPayment(bot, chatId, userId, 'orkut'); return; }
 
   // ── Deposit ─────────────────────────────────────────────────────────────────
-  if (data === 'deposit_midtrans') { await depositHandler.showDepositAmounts(bot, chatId, userId, 'midtrans'); return; }
-  if (data === 'deposit_pakasir')  { await depositHandler.showDepositAmounts(bot, chatId, userId, 'pakasir'); return; }
+  if (data === 'deposit_orkut') { await depositHandler.showDepositAmounts(bot, chatId, userId, 'orkut'); return; }
 
   if (data.startsWith('dep_amount_')) {
-    // dep_amount_midtrans_50000
+    // dep_amount_orkut_50000
     const parts = data.split('_');
     const method = parts[2];
     const amount = parseInt(parts[3]);
@@ -231,15 +236,38 @@ async function routeCallback(bot, chatId, userId, data, query) {
     return;
   }
 
+  // ── Payment Check / Cancel ──────────────────────────────────────────────────
+  if (data.startsWith('check_pay_')) {
+    const reference = data.replace('check_pay_', '');
+    await depositHandler.handleCheckPayment(bot, chatId, userId, reference);
+    return;
+  }
+
+  if (data.startsWith('cancel_pay_')) {
+    const reference = data.replace('cancel_pay_', '');
+    await depositHandler.handleCancelPayment(bot, chatId, userId, reference);
+    return;
+  }
+
   // ── Reseller ────────────────────────────────────────────────────────────────
   if (data === 'reseller_pay_balance')  { await resellerHandler.processResellerUpgrade(bot, chatId, userId, 'balance'); return; }
-  if (data === 'reseller_pay_midtrans') { await resellerHandler.processResellerUpgrade(bot, chatId, userId, 'midtrans'); return; }
-  if (data === 'reseller_pay_pakasir')  { await resellerHandler.processResellerUpgrade(bot, chatId, userId, 'pakasir'); return; }
+  if (data === 'reseller_pay_orkut')    { await resellerHandler.processResellerUpgrade(bot, chatId, userId, 'orkut'); return; }
 
   // ── Transaksi Pagination ────────────────────────────────────────────────────
   if (data.startsWith('trx_page_')) {
     const page = parseInt(data.replace('trx_page_', ''));
     await transactionHandler.showTransactions(bot, chatId, userId, page);
+    return;
+  }
+
+  if (data.startsWith('withdraw_method_')) {
+    const method = data.replace('withdraw_method_', '');
+    await withdrawHandler.handleWithdrawMethod(bot, chatId, userId, method);
+    return;
+  }
+
+  if (data === 'withdraw_submit') {
+    await withdrawHandler.processWithdraw(bot, chatId, userId);
     return;
   }
 

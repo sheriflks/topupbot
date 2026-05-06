@@ -6,8 +6,7 @@
 const { usersDB, transactionsDB } = require('../utils/jsonDB');
 const { generateOrderId, formatCurrency } = require('../utils/validator');
 const { clearUserState, setUserState, getUserState } = require('./menuHandler');
-const midtrans = require('../services/midtrans');
-const pakasir = require('../services/pakasir');
+const { getEngine } = require('../services/paymentEngine');
 const { sendNotification } = require('../services/whatsapp');
 const logger = require('../utils/logger');
 
@@ -26,8 +25,7 @@ async function showDepositMenu(bot, chatId, userId) {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
-          [{ text: '💳 Midtrans (Transfer/QRIS/GoPay/dll)', callback_data: 'deposit_midtrans' }],
-          [{ text: '🏦 Pakasir', callback_data: 'deposit_pakasir' }],
+          [{ text: '� QRIS (Otomatis)', callback_data: 'deposit_orkut' }],
           [{ text: '🔙 Kembali', callback_data: 'back_main' }]
         ]
       }
@@ -51,7 +49,7 @@ async function showDepositAmounts(bot, chatId, userId, method) {
   rows.push([{ text: '✏️ Nominal Lain', callback_data: `dep_custom_${method}` }]);
   rows.push([{ text: '🔙 Kembali', callback_data: 'menu_deposit' }]);
 
-  const methodName = method === 'midtrans' ? 'Midtrans' : 'Pakasir';
+  const methodName = 'QRIS (OrderKuota)';
 
   await bot.sendMessage(chatId,
     `💰 *Deposit via ${methodName}*\n\nPilih nominal deposit:`,
@@ -64,7 +62,7 @@ async function showDepositAmounts(bot, chatId, userId, method) {
 async function handleCustomAmount(bot, chatId, userId, method) {
   setUserState(userId, { flow: 'deposit', step: 'deposit_custom_amount', method });
   await bot.sendMessage(chatId,
-    `✏️ Masukkan nominal deposit (minimal Rp 10.000):\n\nContoh: 75000`,
+    `✏️ Masukkan nominal deposit (Rp 1 - Rp 1.000.000):\n\nContoh: 75000`,
     { parse_mode: 'Markdown' }
   );
 }
@@ -74,8 +72,13 @@ async function handleCustomAmountInput(bot, msg, state) {
   const text = msg.text?.trim().replace(/\D/g, '');
   const amount = parseInt(text);
 
-  if (!amount || amount < 10000) {
-    await bot.sendMessage(msg.chat.id, '❌ Nominal minimal Rp 10.000. Masukkan ulang:');
+  if (isNaN(amount) || amount < 1) {
+    await bot.sendMessage(msg.chat.id, '❌ Nominal minimal Rp 1. Masukkan ulang:');
+    return;
+  }
+  
+  if (amount > 1000000) {
+    await bot.sendMessage(msg.chat.id, '❌ Nominal maksimal Rp 1.000.000. Masukkan ulang:');
     return;
   }
 
@@ -89,163 +92,140 @@ async function processDeposit(bot, chatId, userId, method, amount) {
   const user = usersDB.get(userId);
   if (!user) return;
 
-  const orderId = generateOrderId('DEP');
+  const engine = getEngine();
+  
+  try {
+    await bot.sendMessage(chatId, '⏳ Sedang menggenerate QRIS, mohon tunggu...');
+    
+    const { reference, totalPay, qrBuffer, timeoutMs } = await engine.createDeposit(userId, user.name, amount);
+    const expiresAt = new Date(Date.now() + timeoutMs).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
 
-  if (method === 'midtrans') {
-    try {
-      const result = await midtrans.createSnapTransaction({
-        orderId,
-        amount,
-        customerName: user.name,
-        customerPhone: user.phone,
-        itemDetails: [{
-          id: 'DEPOSIT',
-          price: amount,
-          quantity: 1,
-          name: `Deposit Saldo ${formatCurrency(amount)}`
-        }]
-      });
+    transactionsDB.set(reference, {
+      id: reference,
+      userId,
+      type: 'deposit',
+      amount,
+      totalPay,
+      paymentMethod: 'orkut_qris',
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + timeoutMs).toISOString()
+    });
 
-      transactionsDB.set(orderId, {
-        id: orderId,
-        userId,
-        type: 'deposit',
-        amount,
-        paymentMethod: 'midtrans',
-        paymentUrl: result.redirect_url,
-        paymentToken: result.token,
-        status: 'pending',
-        createdAt: new Date().toISOString()
-      });
-
-      await bot.sendMessage(chatId,
-        `💳 *Deposit via Midtrans*\n\n` +
-        `Order ID: \`${orderId}\`\n` +
-        `Nominal: *${formatCurrency(amount)}*\n\n` +
-        `Metode tersedia:\n` +
-        `• Transfer Bank (BCA, BNI, BRI, Mandiri)\n` +
-        `• QRIS\n` +
-        `• GoPay / ShopeePay\n` +
-        `• Kartu Kredit\n\n` +
-        `Klik tombol di bawah untuk bayar:`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '💳 Bayar Sekarang', url: result.redirect_url }],
-              [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
-            ]
-          }
-        }
-      );
-
-      logger.info('DepositHandler', `Deposit Midtrans dibuat: ${orderId} - ${amount}`);
-
-    } catch (err) {
-      logger.error('DepositHandler', 'Gagal buat Midtrans', { msg: err.message });
-      await bot.sendMessage(chatId,
-        `❌ Gagal membuat pembayaran Midtrans.\n\n${err.message}`,
-        { reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'menu_deposit' }]] } }
-      );
-    }
-
-  } else if (method === 'pakasir') {
-    try {
-      // Coba API dulu untuk dapat QR image, fallback ke URL jika gagal
-      let paymentUrl = pakasir.generatePaymentUrl(orderId, amount);
-      let qrString   = null;
-      let totalBayar = amount;
-      let expiredAt  = null;
-
-      try {
-        const apiResult = await pakasir.createTransaction({ orderId, amount, method: 'qris' });
-        qrString   = apiResult.paymentNumber;
-        totalBayar = apiResult.totalPayment || amount;
-        expiredAt  = apiResult.expiredAt;
-        paymentUrl = apiResult.paymentUrl;
-      } catch (apiErr) {
-        logger.warn('DepositHandler', 'Pakasir API gagal, pakai URL method', { msg: apiErr.message });
+    await bot.sendPhoto(chatId, qrBuffer, {
+      caption: 
+        `� *QRIS DEPOSIT (OTOMATIS)*\n\n` +
+        `Order ID: \`${reference}\`\n` +
+        `Nominal: *${formatCurrency(amount)}*\n` +
+        `Biaya Admin: *${formatCurrency(totalPay - amount)}*\n` +
+        `Total Bayar: *${formatCurrency(totalPay)}*\n\n` +
+        `⚠️ *PENTING:* Bayar sesuai nominal hingga 3 digit terakhir agar terdeteksi otomatis!\n\n` +
+        `⏰ Expired: *${expiresAt}*\n\n` +
+        `Setelah bayar, klik tombol *Cek Status* di bawah.`,
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '� Cek Status Pembayaran', callback_data: `check_pay_${reference}` }],
+          [{ text: '❌ Batalkan', callback_data: `cancel_pay_${reference}` }]
+        ]
       }
+    });
 
-      transactionsDB.set(orderId, {
-        id: orderId, userId, type: 'deposit',
-        amount, paymentMethod: 'pakasir',
-        paymentUrl, status: 'pending',
-        createdAt: new Date().toISOString()
-      });
+    logger.info('DepositHandler', `Deposit Orkut dibuat: ${reference} - ${totalPay}`);
 
-      // Kirim QR image jika berhasil dapat dari API
-      if (qrString) {
-        try {
-          const QRCode = require('qrcode');
-          const qrBuffer = await QRCode.toBuffer(qrString, {
-            type: 'png', width: 512, margin: 2,
-            color: { dark: '#000000', light: '#ffffff' }
-          });
+  } catch (err) {
+    logger.error('DepositHandler', 'Gagal buat Orkut QRIS', { msg: err.message });
+    await bot.sendMessage(chatId,
+      `❌ Gagal membuat pembayaran QRIS.\n\n${err.message}`,
+      { reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'menu_deposit' }]] } }
+    );
+  }
+}
 
-          await bot.sendPhoto(chatId, qrBuffer, {
-            caption:
-              `🏦 *Deposit via Pakasir QRIS*\n\n` +
-              `Order ID: \`${orderId}\`\n` +
-              `Nominal: *${formatCurrency(amount)}*\n` +
-              `Total Bayar: *${formatCurrency(totalBayar)}*\n` +
-              `${expiredAt ? `⏰ Expired: ${new Date(expiredAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n` : ''}` +
-              `\n📲 Scan QR di atas atau klik tombol bayar`,
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🔗 Buka Halaman Bayar', url: paymentUrl }],
-                [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
-              ]
-            }
-          });
-        } catch (qrErr) {
-          // Fallback kirim teks jika QR image gagal
-          await bot.sendMessage(chatId,
-            `🏦 *Deposit via Pakasir*\n\n` +
-            `Order ID: \`${orderId}\`\n` +
-            `Nominal: *${formatCurrency(amount)}*\n\n` +
-            `Klik tombol untuk bayar via QRIS/VA:`,
-            {
-              parse_mode: 'Markdown',
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
-                  [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
-                ]
-              }
-            }
-          );
-        }
-      } else {
-        // URL method saja
-        await bot.sendMessage(chatId,
-          `🏦 *Deposit via Pakasir*\n\n` +
-          `Order ID: \`${orderId}\`\n` +
-          `Nominal: *${formatCurrency(amount)}*\n\n` +
-          `Metode: QRIS, BRI VA, BNI VA, dll\n\n` +
-          `Klik tombol untuk bayar:`,
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
-                [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
-              ]
-            }
-          }
-        );
+// ─── Cek Status Pembayaran ───────────────────────────────────────────────────
+
+async function handleCheckPayment(bot, chatId, userId, reference) {
+  const engine = getEngine();
+  
+  try {
+    const result = await engine.checkPayment(reference);
+    
+    if (result.success && result.paid) {
+      const tx = result.tx;
+      
+      if (tx.type === 'deposit') {
+        await confirmDepositSuccess(bot, reference, tx.base_amount, tx.user_id);
+      } else if (tx.type === 'order' || tx.type === 'topup') {
+        // Handle direct order payment
+        const topupHandler = require('./topupHandler');
+        
+        transactionsDB.update(reference, {
+          status: 'processing',
+          paidAt: new Date().toISOString()
+        });
+
+        await bot.sendMessage(chatId, `✅ *Pembayaran Terdeteksi!*\n\nOrder \`${reference}\` sedang diproses...`, { parse_mode: 'Markdown' });
+        
+        // Execute the topup
+        await topupHandler.executeTopupOrder(bot, chatId, tx.user_id, reference, {
+          product: { code: tx.product_code, name: tx.product_name },
+          finalPrice: tx.base_amount,
+          gameUserId: tx.game_user_id,
+          server: tx.server,
+          game: { icon: '🎮' } // fallback icon
+        });
+      } else if (tx.type === 'ppob') {
+        const ppobHandler = require('./ppobHandler');
+        
+        transactionsDB.update(reference, {
+          status: 'processing',
+          paidAt: new Date().toISOString()
+        });
+
+        await bot.sendMessage(chatId, `✅ *Pembayaran Terdeteksi!*\n\nOrder \`${reference}\` sedang diproses...`, { parse_mode: 'Markdown' });
+        
+        // Execute the ppob
+        await ppobHandler.executePPOBOrder(bot, chatId, tx.user_id, reference, {
+          selectedProduct: { code: tx.product?.code || tx.product_code, name: tx.product?.name || tx.product_name },
+          target: tx.target,
+          finalPrice: tx.amount,
+          cat: { icon: '⚡', name: tx.categoryName || 'PPOB' }
+        });
+      } else if (tx.type === 'reseller_upgrade') {
+        const resellerHandler = require('./resellerHandler');
+        
+        transactionsDB.update(reference, {
+          status: 'processing',
+          paidAt: new Date().toISOString()
+        });
+
+        await bot.sendMessage(chatId, `✅ *Pembayaran Terdeteksi!*\n\nAktivasi Reseller sedang diproses...`, { parse_mode: 'Markdown' });
+        
+        await resellerHandler.confirmResellerUpgrade(bot, reference, tx.user_id);
       }
-
-      logger.info('DepositHandler', `Deposit Pakasir dibuat: ${orderId} - ${amount}`);
-
-    } catch (err) {
-      logger.error('DepositHandler', 'Gagal buat Pakasir', { msg: err.message });
-      await bot.sendMessage(chatId,
-        `❌ Gagal membuat pembayaran Pakasir.\n\n${err.message}`,
-        { reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'menu_deposit' }]] } }
-      );
+    } else if (result.success && !result.paid) {
+      await bot.sendMessage(chatId, '❌ Pembayaran belum terdeteksi. Pastikan Anda sudah membayar sesuai nominal yang tertera.', {
+        reply_markup: {
+          inline_keyboard: [[{ text: '🔄 Cek Lagi', callback_data: `check_pay_${reference}` }]]
+        }
+      });
+    } else {
+      await bot.sendMessage(chatId, `❌ Gagal cek status: ${result.reason || 'Unknown error'}`);
     }
+  } catch (err) {
+    await bot.sendMessage(chatId, `❌ Kesalahan sistem: ${err.message}`);
+  }
+}
+
+async function handleCancelPayment(bot, chatId, userId, reference) {
+  const engine = getEngine();
+  const result = await engine.cancel(reference, userId);
+  
+  if (result.ok) {
+    transactionsDB.update(reference, { status: 'canceled', canceledAt: new Date().toISOString() });
+    await bot.sendMessage(chatId, `✅ Pembayaran \`${reference}\` telah dibatalkan.`, { parse_mode: 'Markdown' });
+  } else {
+    await bot.sendMessage(chatId, `❌ Gagal membatalkan: ${result.reason}`);
   }
 }
 
@@ -301,5 +281,7 @@ module.exports = {
   handleCustomAmount,
   handleCustomAmountInput,
   processDeposit,
+  handleCheckPayment,
+  handleCancelPayment,
   confirmDepositSuccess
 };

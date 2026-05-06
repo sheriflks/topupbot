@@ -94,18 +94,18 @@ async function connectWhatsApp(bot) {
         isConnecting = false;
 
         const code      = lastDisconnect?.error?.output?.statusCode;
-        const loggedOut = code === DisconnectReason.loggedOut;
+        const loggedOut = code === DisconnectReason.loggedOut || code === 403;
 
         logger.warn('WhatsApp', 'Koneksi terputus', { code, loggedOut, reconnectCount });
 
         if (loggedOut) {
           // Logout permanen — notif sekali saja, hapus session, lalu diam
-          logger.warn('WhatsApp', 'Logged out permanen');
+          logger.error('WhatsApp', 'Sesi tidak valid atau Logged Out. Menghapus sesi lama...');
           reconnectCount = 0;
           clearSession();
           // Hanya notif jika admin sedang aktif (ada qrMsgId = sedang proses connect)
           if (qrMsgId) {
-            await notifyAdminTelegram('❌ *WhatsApp Logout!*\n\nSilakan connect ulang via /admin → Koneksi WA.');
+            await notifyAdminTelegram('❌ *WhatsApp Logout!*\n\nSesi tidak valid atau Logged Out. Silakan connect ulang via /admin → Koneksi WA.');
           }
           return;
         }

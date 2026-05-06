@@ -15,13 +15,18 @@ process.on('unhandledRejection', (err) => logger.error('App', 'Unhandled Rejecti
 const { initBot }            = require('./services/telegram');
 const { startWebhookServer } = require('./services/webhookServer');
 const { syncProducts, startAutoSync } = require('./services/productSync');
+const { startAutoCheck } = require('./services/paymentChecker');
 const config = require('./config/config.json');
 
 async function main() {
-  console.log('\n╔══════════════════════════════════════╗');
-  console.log('║         TOPUPBOT v2.0.0              ║');
-  console.log('║   Topup Game & PPOB All-in-One       ║');
-  console.log('╚══════════════════════════════════════╝\n');
+  const cfg = require('./config/config.json');
+  const botName = cfg.app.bot_name || 'TOPUPBOT';
+  const version = cfg.app.version || '2.0.0';
+
+  console.log('\x1b[36m%s\x1b[0m', '\n╔══════════════════════════════════════╗');
+  console.log('\x1b[36m%s\x1b[0m', `║  🚀 ${botName.padEnd(25)} v${version.padEnd(6)} ║`);
+  console.log('\x1b[36m%s\x1b[0m', '║     Topup Game & PPOB All-in-One     ║');
+  console.log('\x1b[36m%s\x1b[0m', '╚══════════════════════════════════════╝\n');
 
   // ─── Step 1: Init Telegram Bot (wajib ada token) ──────────────────────────
   logger.info('App', '🤖 Menginisialisasi Telegram Bot...');
@@ -46,7 +51,11 @@ async function main() {
     logger.warn('App', 'Webhook server gagal (opsional)', { msg: err.message });
   }
 
-  // ─── Step 3: Sync Produk (background, tidak block) ───────────────────────
+  // ─── Step 3: Payment Auto-check (OrderKuota Mutasi) ──────────────────────
+  startAutoCheck(bot);
+  logger.info('App', '✅ Payment Auto-check aktif!');
+
+  // ─── Step 4: Sync Produk (background, tidak block) ───────────────────────
   if (config.product_sync.on_startup) {
     syncProducts()
       .then(total => logger.info('App', `Produk tersinkronisasi: ${total} item`))

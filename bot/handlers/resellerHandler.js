@@ -64,8 +64,7 @@ async function showResellerInfo(bot, chatId, userId) {
       reply_markup: {
         inline_keyboard: [
           [{ text: `💰 Bayar Saldo (${formatCurrency(user?.balance || 0)})`, callback_data: 'reseller_pay_balance' }],
-          [{ text: '💳 Midtrans', callback_data: 'reseller_pay_midtrans' }],
-          [{ text: '🏦 Pakasir', callback_data: 'reseller_pay_pakasir' }],
+          [{ text: '📸 QRIS (Otomatis)', callback_data: 'reseller_pay_orkut' }],
           [{ text: '🔙 Kembali', callback_data: 'back_main' }]
         ]
       }
@@ -151,64 +150,52 @@ async function processResellerUpgrade(bot, chatId, userId, paymentMethod) {
     await sendAdminAlert(`🏪 RESELLER BARU\nUser: ${user.name} (${userId})\nHP: ${user.phone}`);
     logger.info('ResellerHandler', `Upgrade reseller sukses: ${userId}`);
 
-  } else if (paymentMethod === 'midtrans') {
+  } else if (paymentMethod === 'orkut') {
+    const { getEngine } = require('../services/paymentEngine');
+    const engine = getEngine();
+    
     try {
-      const result = await midtrans.createSnapTransaction({
-        orderId, amount: fee,
-        customerName: user.name, customerPhone: user.phone,
-        itemDetails: [{ id: 'RESELLER', price: fee, quantity: 1, name: 'Aktivasi Reseller' }]
-      });
-
-      transactionsDB.set(orderId, {
-        id: orderId, userId, type: 'reseller_upgrade',
-        amount: fee, paymentMethod: 'midtrans',
-        paymentUrl: result.redirect_url, paymentToken: result.token,
-        status: 'pending', createdAt: new Date().toISOString()
-      });
-
-      await bot.sendMessage(chatId,
-        `💳 *Aktivasi Reseller via Midtrans*\n\n` +
-        `Biaya: *${formatCurrency(fee)}*\n\n` +
-        `Selesaikan pembayaran:`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '💳 Bayar Sekarang', url: result.redirect_url }],
-              [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
-            ]
-          }
+      await bot.sendMessage(chatId, '⏳ Sedang menggenerate QRIS, mohon tunggu...');
+      
+      const { reference, totalPay, qrBuffer, timeoutMs } = await engine.createOrder({
+        userId,
+        username: user.name,
+        baseAmount: fee,
+        meta: {
+          order_type: 'reseller_upgrade'
         }
-      );
-    } catch (err) {
-      await bot.sendMessage(chatId, `❌ Gagal: ${err.message}`);
-    }
-
-  } else if (paymentMethod === 'pakasir') {
-    try {
-      const paymentUrl = pakasir.generatePaymentUrl(orderId, fee);
-
-      transactionsDB.set(orderId, {
-        id: orderId, userId, type: 'reseller_upgrade',
-        amount: fee, paymentMethod: 'pakasir',
-        paymentUrl,
-        status: 'pending', createdAt: new Date().toISOString()
       });
 
-      await bot.sendMessage(chatId,
-        `🏦 *Aktivasi Reseller via Pakasir*\n\n` +
-        `Biaya: *${formatCurrency(fee)}*\n\n` +
-        `Selesaikan pembayaran:`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
-              [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
-            ]
-          }
+      const expiresAt = new Date(Date.now() + timeoutMs).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+
+      transactionsDB.set(reference, {
+        id: reference,
+        userId,
+        type: 'reseller_upgrade',
+        amount: fee,
+        totalPay,
+        paymentMethod: 'orkut_qris',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + timeoutMs).toISOString()
+      });
+
+      await bot.sendPhoto(chatId, qrBuffer, {
+        caption:
+          `📸 *AKTIVASI RESELLER (QRIS)*\n\n` +
+          `💰 Biaya: *${formatCurrency(fee)}*\n` +
+          `💸 Total Bayar: *${formatCurrency(totalPay)}*\n\n` +
+          `⚠️ *PENTING:* Bayar sesuai nominal hingga 3 digit terakhir!\n\n` +
+          `⏰ Expired: *${expiresAt}*\n\n` +
+          `Setelah bayar, klik tombol *Cek Status* di bawah.`,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔄 Cek Status Pembayaran', callback_data: `check_pay_${reference}` }],
+            [{ text: '❌ Batalkan', callback_data: `cancel_pay_${reference}` }]
+          ]
         }
-      );
+      });
     } catch (err) {
       await bot.sendMessage(chatId, `❌ Gagal: ${err.message}`);
     }

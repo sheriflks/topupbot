@@ -18,10 +18,15 @@ const menuHandler = require('./menuHandler');
 
 // Path ke config.json agar bisa ditulis ulang
 const CONFIG_PATH = path.resolve(__dirname, '../config/config.json');
+const PAYMENT_PATH = path.resolve(__dirname, '../../payment.json');
 
 // ─── Helper: Simpan config ke file ────────────────────────────────────────────
 function saveConfig(updatedConfig) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(updatedConfig, null, 2), 'utf8');
+}
+
+function savePayment(updatedPayment) {
+  fs.writeFileSync(PAYMENT_PATH, JSON.stringify(updatedPayment, null, 2), 'utf8');
 }
 
 // ─── Helper: Reload config (baca ulang dari file) ─────────────────────────────
@@ -30,6 +35,14 @@ function getConfig() {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {
     return config;
+  }
+}
+
+function getPayment() {
+  try {
+    return JSON.parse(fs.readFileSync(PAYMENT_PATH, 'utf8'));
+  } catch {
+    return {};
   }
 }
 
@@ -63,33 +76,43 @@ async function sendAdminPanel(bot, chatId, messageId = null) {
   const waStatus   = whatsapp.isWAConnected() ? '✅ Terhubung' : whatsapp.isWAConnecting() ? '⏳ Connecting...' : '❌ Terputus';
 
   const text =
-    `🛠️ *PANEL ADMIN — TopupBot*\n\n` +
-    `👥 User: *${totalUsers}*\n` +
-    `📊 Transaksi: *${totalTrx}* (✅ ${successTrx})\n` +
-    `🔄 Sync Terakhir: *${lastSync}*\n` +
-    `📱 WhatsApp: *${waStatus}*\n\n` +
-    `Pilih menu:`;
+    `✨ *ADMIN CONTROL CENTER* ✨\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🤖 *Bot:* ${cfg.app.bot_name}\n` +
+    `👥 *Users:* ${totalUsers.toLocaleString()}\n` +
+    `📊 *Trx:* ${totalTrx} (✅ ${successTrx})\n` +
+    `📱 *WA Status:* ${waStatus}\n` +
+    `🔄 *Last Sync:* ${lastSync}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `Silakan pilih menu manajemen di bawah ini:`;
 
   const keyboard = {
     inline_keyboard: [
       [
-        { text: '📱 Koneksi WA',   callback_data: 'admin_wa'        },
+        { text: '📱 WhatsApp',     callback_data: 'admin_wa'        },
         { text: '🔄 Sync Produk',  callback_data: 'admin_sync'      }
       ],
       [
-        { text: '👥 User',         callback_data: 'admin_users'     },
-        { text: '📈 Statistik',    callback_data: 'admin_stats'     }
+        { text: '💰 Saldo Orkut',  callback_data: 'admin_orkut_balance' },
+        { text: '📊 Statistik',    callback_data: 'admin_stats'     }
+      ],
+      [
+        { text: '👥 Manajemen User', callback_data: 'admin_users'     }
       ],
       [
         { text: '📢 Broadcast',    callback_data: 'admin_broadcast' },
+        { text: '⚙️ Bot Identity', callback_data: 'admin_bot_identity' }
+      ],
+      [
+        { text: '💸 Withdrawals',  callback_data: 'admin_withdrawals' },
         { text: '⚙️ Settings',     callback_data: 'admin_settings'  }
       ],
       [
-        { text: '🔑 Ganti API Key', callback_data: 'admin_apikeys'  },
-        { text: '💰 Atur Markup',   callback_data: 'admin_markup'   }
+        { text: '🔑 API Keys',     callback_data: 'admin_apikeys'  },
+        { text: '💰 Markup',       callback_data: 'admin_markup'   }
       ],
       [
-        { text: '❌ Tutup',         callback_data: 'admin_close'    }
+        { text: '❌ Tutup Panel',   callback_data: 'admin_close'    }
       ]
     ]
   };
@@ -115,11 +138,51 @@ async function handleAdminCallback(bot, chatId, userId, data, query) {
   if (data === 'admin_wa_disconnect')  { await whatsapp.disconnectWhatsApp(); await bot.answerCallbackQuery(query.id, { text: '✅ WA Terputus' }); await showWAMenu(bot, chatId, messageId); return; }
 
   // ── Sync ─────────────────────────────────────────────────────────────────────
-  if (data === 'admin_sync')           { await bot.answerCallbackQuery(query.id, { text: '⏳ Sync...' }); await handleSync(bot, chatId, messageId); return; }
+  if (data === 'admin_sync')           { await handleSync(bot, chatId, messageId); return; }
+
+  // ── Balance ──────────────────────────────────────────────────────────────────
+  if (data === 'admin_orkut_balance')  { await showOrkutBalance(bot, chatId, messageId); return; }
+  if (data === 'admin_pakasir_balance') { await showPakasirBalance(bot, chatId, messageId); return; }
+  if (data === 'admin_midtrans_balance') { await showMidtransBalance(bot, chatId, messageId); return; }
+  
+  if (data === 'admin_orkut_withdraw') { 
+    await bot.answerCallbackQuery(query.id); 
+    menuHandler.setUserState(userId, { flow: 'admin', step: 'orkut_wd_provider', msgId: messageId }); 
+    await bot.sendMessage(chatId, 
+      '💸 *Withdraw Saldo Admin*\n\nPilih sumber saldo yang ingin ditarik:',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📸 OrderKuota (Orkut)', callback_data: 'admin_wd_src_orkut' }],
+            [{ text: '🏦 Pakasir', callback_data: 'admin_wd_src_pakasir' }],
+            [{ text: '💳 Midtrans', callback_data: 'admin_wd_src_midtrans' }],
+            [{ text: '❌ Batal', callback_data: 'admin_main' }]
+          ]
+        }
+      }
+    ); 
+    return; 
+  }
+  
+  if (data === 'admin_bot_identity')   { await showBotIdentitySettings(bot, chatId, messageId); return; }
+  if (data === 'admin_set_bot_name')    { await bot.answerCallbackQuery(query.id); menuHandler.setUserState(userId, { flow: 'admin', step: 'set_bot_name', msgId: messageId }); await bot.sendMessage(chatId, '📝 Masukkan *Nama Bot* baru:'); return; }
+  if (data === 'admin_set_bot_thumb')   { await bot.answerCallbackQuery(query.id); menuHandler.setUserState(userId, { flow: 'admin', step: 'set_bot_thumb', msgId: messageId }); await bot.sendMessage(chatId, '🖼️ Masukkan *URL Thumbnail* baru (Link Gambar):'); return; }
 
   // ── Stats & Users ─────────────────────────────────────────────────────────────
   if (data === 'admin_stats')          { await showStats(bot, chatId, messageId); return; }
   if (data === 'admin_users')          { await showUserList(bot, chatId, 0, messageId); return; }
+  if (data === 'admin_withdrawals')    { await showWithdrawRequests(bot, chatId, messageId); return; }
+  if (data.startsWith('admin_wd_approve_')) {
+    const wdId = data.replace('admin_wd_approve_', '');
+    await handleWithdrawAction(bot, chatId, userId, wdId, 'success');
+    return;
+  }
+  if (data.startsWith('admin_wd_reject_')) {
+    const wdId = data.replace('admin_wd_reject_', '');
+    await handleWithdrawAction(bot, chatId, userId, wdId, 'failed');
+    return;
+  }
   if (data.startsWith('admin_users_page_')) {
     const page = parseInt(data.replace('admin_users_page_', ''));
     await showUserList(bot, chatId, page, messageId);
@@ -133,8 +196,22 @@ async function handleAdminCallback(bot, chatId, userId, data, query) {
   if (data === 'admin_settings')       { await showSettings(bot, chatId, messageId); return; }
   if (data === 'admin_markup')         { await showMarkupSettings(bot, chatId, messageId); return; }
   if (data === 'admin_apikeys')        { await showAPISettings(bot, chatId, messageId); return; }
+  if (data === 'admin_orkut_settings') { await showOrkutSettings(bot, chatId, messageId); return; }
+  if (data === 'admin_set_orkut_user') { await bot.answerCallbackQuery(query.id); menuHandler.setUserState(userId, { flow: 'admin', step: 'set_orkut_user', msgId: messageId }); await bot.sendMessage(chatId, '📝 Masukkan *Username Orkut*:'); return; }
+  if (data === 'admin_set_orkut_token'){ await bot.answerCallbackQuery(query.id); menuHandler.setUserState(userId, { flow: 'admin', step: 'set_orkut_token', msgId: messageId }); await bot.sendMessage(chatId, '📝 Masukkan *Token Orkut*:'); return; }
+  if (data === 'admin_set_orkut_key')  { await bot.answerCallbackQuery(query.id); menuHandler.setUserState(userId, { flow: 'admin', step: 'set_orkut_key', msgId: messageId }); await bot.sendMessage(chatId, '📝 Masukkan *TokenKey Orkut*:'); return; }
+  
+  if (data.startsWith('admin_wd_src_')) {
+    const src = data.replace('admin_wd_src_', '');
+    const state = menuHandler.getUserState(userId);
+    menuHandler.setUserState(userId, { ...state, source: src, step: 'orkut_wd_amount' });
+    await bot.sendMessage(chatId, `💸 *Withdraw via ${src.toUpperCase()}*\n\nMasukkan jumlah yang ingin ditarik:`);
+    return;
+  }
 
-  // ── Markup Edit ───────────────────────────────────────────────────────────────
+  if (data === 'admin_orkut_wd_confirm') { await handleOrkutWithdrawConfirm(bot, chatId, userId); return; }
+
+  // ── Sync ─────────────────────────────────────────────────────────────────────
   if (data === 'admin_set_markup_user')     { menuHandler.setUserState(userId, { flow: 'admin', step: 'set_markup_user',     msgId: messageId }); await bot.editMessageText('✏️ Masukkan markup user baru (angka %, contoh: 10):', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [[{ text: '❌ Batal', callback_data: 'admin_markup' }]] } }); return; }
   if (data === 'admin_set_markup_reseller') { menuHandler.setUserState(userId, { flow: 'admin', step: 'set_markup_reseller', msgId: messageId }); await bot.editMessageText('✏️ Masukkan markup reseller baru (angka %, contoh: 5):', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [[{ text: '❌ Batal', callback_data: 'admin_markup' }]] } }); return; }
   if (data === 'admin_set_reseller_fee')    { menuHandler.setUserState(userId, { flow: 'admin', step: 'set_reseller_fee',    msgId: messageId }); await bot.editMessageText('✏️ Masukkan biaya upgrade reseller baru (Rp, contoh: 50000):', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [[{ text: '❌ Batal', callback_data: 'admin_settings' }]] } }); return; }
@@ -432,6 +509,100 @@ async function handleAdminInput(bot, msg, state) {
     return;
   }
 
+  // ── Orkut Settings ──────────────────────────────────────────────────────────
+  if (state.step === 'set_orkut_user') {
+    const pay = getPayment();
+    pay.auth_username = text;
+    savePayment(pay);
+    await bot.sendMessage(chatId, `✅ Orkut Username disimpan.`);
+    await showOrkutSettings(bot, chatId, msgId);
+    return;
+  }
+
+  if (state.step === 'set_orkut_token') {
+    const pay = getPayment();
+    pay.auth_token = text;
+    savePayment(pay);
+    await bot.sendMessage(chatId, `✅ Orkut Token disimpan.`);
+    await showOrkutSettings(bot, chatId, msgId);
+    return;
+  }
+
+  if (state.step === 'set_orkut_key') {
+    const pay = getPayment();
+    pay.tokenKey = text;
+    savePayment(pay);
+    await bot.sendMessage(chatId, `✅ Orkut TokenKey disimpan.`);
+    await showOrkutSettings(bot, chatId, msgId);
+    return;
+  }
+
+  // ── Bot Identity ────────────────────────────────────────────────────────────
+  if (state.step === 'set_bot_name') {
+    const c = getConfig();
+    c.app.bot_name = text;
+    saveConfig(c);
+    await bot.sendMessage(chatId, `✅ Nama Bot berhasil diubah menjadi: *${text}*`, { parse_mode: 'Markdown' });
+    await showBotIdentitySettings(bot, chatId, msgId);
+    return;
+  }
+
+  if (state.step === 'set_bot_thumb') {
+    const c = getConfig();
+    c.app.bot_thumbnail = text;
+    saveConfig(c);
+    await bot.sendMessage(chatId, `✅ Thumbnail Bot berhasil diperbarui.`);
+    await showBotIdentitySettings(bot, chatId, msgId);
+    return;
+  }
+
+  // ── Orkut Withdrawal Flow ───────────────────────────────────────────────────
+  if (state.step === 'orkut_wd_amount') {
+    const amount = parseInt(text.replace(/\D/g, ''));
+    if (isNaN(amount) || amount <= 0) { await bot.sendMessage(chatId, '❌ Nominal tidak valid.'); return; }
+    menuHandler.setUserState(userId, { ...state, step: 'orkut_wd_bank', amount });
+    await bot.sendMessage(chatId, '🏦 Masukkan *Nama Bank / E-Wallet* (contoh: DANA, BCA, GOPAY):');
+    return;
+  }
+
+  if (state.step === 'orkut_wd_bank') {
+    menuHandler.setUserState(userId, { ...state, step: 'orkut_wd_acc_num', bankCode: text });
+    await bot.sendMessage(chatId, '🔢 Masukkan *Nomor Rekening / No HP*:');
+    return;
+  }
+
+  if (state.step === 'orkut_wd_acc_num') {
+    menuHandler.setUserState(userId, { ...state, step: 'orkut_wd_acc_name', accountNum: text });
+    await bot.sendMessage(chatId, '👤 Masukkan *Nama Pemilik Rekening*:');
+    return;
+  }
+
+  if (state.step === 'orkut_wd_acc_name') {
+    const { amount, bankCode, accountNum } = state;
+    const accountName = text;
+    
+    await bot.sendMessage(chatId, 
+      `📋 *KONFIRMASI WITHDRAW ORKUT*\n\n` +
+      `💰 Nominal: *${formatCurrency(amount)}*\n` +
+      `🏦 Bank/Wallet: *${bankCode}*\n` +
+      `🔢 Nomor: \`${accountNum}\`\n` +
+      `👤 Nama: *${accountName}*\n\n` +
+      `Apakah data sudah benar?`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Ya, Tarik Sekarang', callback_data: `admin_orkut_wd_confirm` }],
+            [{ text: '❌ Batal', callback_data: 'admin_main' }]
+          ]
+        }
+      }
+    );
+    // Simpan data ke state sementara untuk dikonfirmasi di callback
+    menuHandler.setUserState(userId, { ...state, accountName, step: 'orkut_wd_confirm' });
+    return;
+  }
+
   // ── Tambah Saldo — Step 1: input ID ──────────────────────────────────────────
   if (state.step === 'add_saldo_id') {
     const targetUser = usersDB.get(text);
@@ -468,7 +639,39 @@ async function handleAdminInput(bot, msg, state) {
   }
 }
 
-// ─── Settings Umum ─────────────────────────────────────────────────────────────
+/**
+ * Handle Sinkronisasi Produk Manual
+ */
+async function handleSync(bot, chatId, messageId) {
+  try {
+    await bot.editMessageText(`⏳ *SINKRONISASI PRODUK*\n\nSedang mengambil data terbaru dari API provider...\nMohon tunggu sebentar.`, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'Markdown'
+    }).catch(() => {});
+
+    const total = await syncProducts();
+
+    await bot.editMessageText(
+      `✅ *SINKRONISASI SELESAI!*\n\n` +
+      `Total produk tersimpan: *${total}*\n` +
+      `Semua harga telah diperbarui ke harga modal terbaru.\n\n` +
+      `_Markup saat ini:_\n` +
+      `- User: *${getConfig().markup.markup_user}%*\n` +
+      `- Reseller: *${getConfig().markup.markup_reseller}%*`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali', callback_data: 'admin_main' }]] }
+      }
+    ).catch(() => {});
+  } catch (err) {
+    logger.error('AdminHandler', 'Sync manual gagal', { msg: err.message });
+    await bot.sendMessage(chatId, `❌ Sinkronisasi gagal: ${err.message}`);
+    await sendAdminPanel(bot, chatId, messageId);
+  }
+}
+
+// ─── Settings Panel ─────────────────────────────────────────────────────────────
 async function showSettings(bot, chatId, messageId) {
   const cfg = getConfig();
   const text =
@@ -515,6 +718,82 @@ async function showMarkupSettings(bot, chatId, messageId) {
   }).catch(() => {});
 }
 
+/**
+ * Tampilkan Daftar Request Withdraw
+ */
+async function showWithdrawRequests(bot, chatId, messageId) {
+  const transactions = transactionsDB.read();
+  const requests = Object.values(transactions).filter(t => t.type === 'withdraw' && t.status === 'pending');
+
+  let text = `💸 *REQUEST PENARIKAN (PENDING)*\n\n`;
+  const keyboard = { inline_keyboard: [] };
+
+  if (requests.length === 0) {
+    text += `Tidak ada request pending.`;
+  } else {
+    requests.forEach(req => {
+      text += `🆔 ID: \`${req.id}\`\n`;
+      text += `👤 User: ${req.userId}\n`;
+      text += `💰 Nominal: *${formatCurrency(req.amount)}*\n`;
+      text += `🎯 Tujuan: \`${req.account}\` (${req.method})\n\n`;
+      
+      keyboard.inline_keyboard.push([
+        { text: `✅ Approve ${req.id.slice(-4)}`, callback_data: `admin_wd_approve_${req.id}` },
+        { text: `❌ Reject ${req.id.slice(-4)}`, callback_data: `admin_wd_reject_${req.id}` }
+      ]);
+    });
+  }
+
+  keyboard.inline_keyboard.push([{ text: '🔙 Kembali', callback_data: 'admin_main' }]);
+
+  await bot.editMessageText(text, {
+    chat_id: chatId, message_id: messageId,
+    parse_mode: 'Markdown', reply_markup: keyboard
+  }).catch(() => {});
+}
+
+async function handleWithdrawAction(bot, chatId, adminId, wdId, status) {
+  const transactions = transactionsDB.read();
+  const req = transactions[wdId];
+  if (!req) return;
+
+  transactionsDB.update(wdId, {
+    status,
+    processedAt: new Date().toISOString()
+  });
+
+  const user = usersDB.get(req.userId);
+
+  if (status === 'success') {
+    await bot.sendMessage(chatId, `✅ Berhasil menyetujui penarikan \`${wdId}\``);
+    if (user) {
+      await bot.sendMessage(req.userId, 
+        `✅ *PENARIKAN BERHASIL!*\n\n` +
+        `ID: \`${wdId}\`\n` +
+        `Nominal: *${formatCurrency(req.amount)}*\n` +
+        `Tujuan: \`${req.account}\` (${req.method})\n\n` +
+        `Dana telah dikirim ke rekening/e-wallet Anda.`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+  } else {
+    // Kembalikan saldo jika reject
+    if (user) {
+      usersDB.update(req.userId, { balance: (user.balance || 0) + req.amount });
+      await bot.sendMessage(chatId, `❌ Berhasil menolak penarikan \`${wdId}\`. Saldo user dikembalikan.`);
+      await bot.sendMessage(req.userId, 
+        `❌ *PENARIKAN DITOLAK*\n\n` +
+        `ID: \`${wdId}\`\n` +
+        `Nominal: *${formatCurrency(req.amount)}*\n\n` +
+        `Saldo telah dikembalikan ke akun Anda.`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+  }
+
+  await sendAdminPanel(bot, chatId); // Refresh list
+}
+
 // ─── Settings API Keys ─────────────────────────────────────────────────────────
 async function showAPISettings(bot, chatId, messageId) {
   const cfg = getConfig();
@@ -549,10 +828,211 @@ async function showAPISettings(bot, chatId, messageId) {
         [{ text: '🛒 VIP Member ID',     callback_data: 'admin_set_vip_member'   }],
         [{ text: '🎮 API Games Merchant ID', callback_data: 'admin_set_apigames_key'    }],
         [{ text: '🎮 API Games Secret Key',  callback_data: 'admin_set_apigames_secret'  }],
+        [{ text: '📸 OrderKuota (Orkut) Settings', callback_data: 'admin_orkut_settings' }],
         [{ text: '🔙 Kembali',           callback_data: 'admin_main'             }]
       ]
     }
   }).catch(() => {});
+}
+
+/**
+ * Tampilkan Pengaturan OrderKuota (Orkut)
+ */
+async function showOrkutSettings(bot, chatId, messageId) {
+  const pay = getPayment();
+
+  function mask(str) {
+    if (!str || str.startsWith('YOUR_') || str === '') return '❌ Belum diisi';
+    return str.substring(0, 6) + '••••••' + str.slice(-4);
+  }
+
+  const text =
+    `📸 *PENGATURAN ORDERKUOTA (ORKUT)*\n\n` +
+    `👤 Username Orkut: \`${pay.auth_username || '❌ Belum diisi'}\`\n` +
+    `🔑 Token Orkut: \`${mask(pay.auth_token)}\`\n` +
+    `🗝️ TokenKey Orkut: \`${mask(pay.tokenKey)}\`\n\n` +
+    `_Pengaturan ini digunakan untuk cek saldo dan withdraw._`;
+
+  await bot.editMessageText(text, {
+    chat_id: chatId, message_id: messageId,
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '👤 Ganti Username', callback_data: 'admin_set_orkut_user'  }],
+        [{ text: '🔑 Ganti Token',    callback_data: 'admin_set_orkut_token' }],
+        [{ text: '🗝️ Ganti TokenKey', callback_data: 'admin_set_orkut_key'   }],
+        [{ text: '🔙 Kembali',        callback_data: 'admin_apikeys'         }]
+      ]
+    }
+  }).catch(() => {});
+}
+
+async function handleOrkutWithdrawConfirm(bot, chatId, userId) {
+  const state = menuHandler.getUserState(userId);
+  if (!state || state.step !== 'orkut_wd_confirm') return;
+
+  const { getEngine } = require('../services/paymentEngine');
+  const engine = getEngine();
+  const source = state.source || 'orkut';
+
+  try {
+    await bot.sendMessage(chatId, `⏳ Sedang memproses penarikan saldo dari ${source.toUpperCase()}...`);
+    
+    // Untuk saat ini kita gunakan engine.withdrawBalance yang sama, 
+    // tapi kita kirim source-nya sebagai info tambahan
+    const res = await engine.withdrawBalance(state.amount, state.accountNum, state.accountName, state.bankCode, source);
+
+    if (res.status || res.success) {
+      await bot.sendMessage(chatId, 
+        `✅ *PENARIKAN BERHASIL!*\n\n` +
+        `� Sumber: *${source.toUpperCase()}*\n` +
+        `�💰 Nominal: *${formatCurrency(state.amount)}*\n` +
+        `🏦 Tujuan: *${state.bankCode}* (${state.accountNum})\n` +
+        `👤 Nama: *${state.accountName}*\n\n` +
+        `Pesan: _${res.message || 'Sukses'}_`,
+        { parse_mode: 'Markdown' }
+      );
+    } else {
+      await bot.sendMessage(chatId, `❌ Gagal menarik saldo: ${res.message || 'Unknown error'}`);
+    }
+  } catch (err) {
+    await bot.sendMessage(chatId, `❌ Kesalahan sistem: ${err.message}\n\n_Catatan: Jika fitur ini belum didukung API, silakan lakukan penarikan manual di dashboard ${source.toUpperCase()}._`, { parse_mode: 'Markdown' });
+  }
+
+  menuHandler.clearUserState(userId);
+  await sendAdminPanel(bot, chatId);
+}
+
+/**
+ * Tampilkan Saldo Pakasir
+ */
+async function showPakasirBalance(bot, chatId, messageId) {
+  // Pakasir biasanya tidak punya API cek saldo, harus via dashboard
+  const text = 
+    `💰 *SALDO PAKASIR*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `Maaf, API Pakasir saat ini tidak mendukung pengecekan saldo secara real-time.\n\n` +
+    `Silakan cek saldo Anda langsung di dashboard:\n` +
+    `🌐 https://app.pakasir.com\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━`;
+
+  await bot.editMessageText(text, {
+    chat_id: chatId, message_id: messageId,
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '💸 Tarik Saldo (Request)', callback_data: 'admin_wd_src_pakasir' }],
+        [{ text: '🔙 Kembali', callback_data: 'admin_orkut_balance' }]
+      ]
+    }
+  }).catch(() => {});
+}
+
+/**
+ * Tampilkan Saldo Midtrans
+ */
+async function showMidtransBalance(bot, chatId, messageId) {
+  // Midtrans Iris API bisa cek saldo, tapi harus ada key khusus Iris
+  const text = 
+    `💰 *SALDO MIDTRANS*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `Untuk mengecek saldo Midtrans secara otomatis, Anda memerlukan API Key Midtrans Iris (Payouts).\n\n` +
+    `Silakan cek saldo Anda di dashboard Midtrans:\n` +
+    `🌐 https://dashboard.midtrans.com\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━`;
+
+  await bot.editMessageText(text, {
+    chat_id: chatId, message_id: messageId,
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '💸 Tarik Saldo (Request)', callback_data: 'admin_wd_src_midtrans' }],
+        [{ text: '🔙 Kembali', callback_data: 'admin_orkut_balance' }]
+      ]
+    }
+  }).catch(() => {});
+}
+
+/**
+ * Pengaturan Identitas Bot (Nama & Thumbnail)
+ */
+async function showBotIdentitySettings(bot, chatId, messageId) {
+  const cfg = getConfig();
+  
+  const text = 
+    `🤖 *BOT IDENTITY SETTINGS*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `📝 *Nama Bot:* ${cfg.app.bot_name}\n` +
+    `🖼️ *Thumbnail:* ${cfg.app.bot_thumbnail ? 'Sudah diset ✅' : 'Belum diset ❌'}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `Silakan pilih yang ingin diubah:`;
+
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: '📝 Ganti Nama Bot', callback_data: 'admin_set_bot_name' }],
+      [{ text: '🖼️ Ganti Thumbnail', callback_data: 'admin_set_bot_thumb' }],
+      [{ text: '🔙 Kembali', callback_data: 'admin_main' }]
+    ]
+  };
+
+  if (cfg.app.bot_thumbnail) {
+    await bot.sendPhoto(chatId, cfg.app.bot_thumbnail, {
+      caption: text,
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    }).then(() => {
+      if (messageId) bot.deleteMessage(chatId, messageId).catch(() => {});
+    }).catch(async () => {
+      // Fallback if photo fails
+      await bot.editMessageText(text, {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      }).catch(() => {});
+    });
+  } else {
+    await bot.editMessageText(text, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Tampilkan Saldo OrderKuota (Orkut)
+ */
+async function showOrkutBalance(bot, chatId, messageId) {
+  const { getEngine } = require('../services/paymentEngine');
+  const engine = getEngine();
+
+  try {
+    const res = await engine.checkBalance();
+    const balance = res.balance || 0;
+
+    const text =
+      `💰 *SALDO PAYMENT GATEWAY*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📸 *OrderKuota:* ${formatCurrency(balance)}\n` +
+      `🏦 *Status:* ${res.status ? 'Aktif ✅' : 'Bermasalah ❌'}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `Saldo ini adalah dana yang terkumpul dari pembayaran QRIS. Anda dapat menarik dana ini ke Bank/E-Wallet.`;
+
+    await bot.editMessageText(text, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '💸 Tarik Saldo (Withdraw)', callback_data: 'admin_orkut_withdraw' }],
+          [{ text: '🔄 Cek Saldo Pakasir', callback_data: 'admin_pakasir_balance' }],
+          [{ text: '🔄 Cek Saldo Midtrans', callback_data: 'admin_midtrans_balance' }],
+          [{ text: '🔙 Kembali', callback_data: 'admin_main' }]
+        ]
+      }
+    }).catch(() => {});
+  } catch (err) {
+    await bot.sendMessage(chatId, `❌ Gagal cek saldo Orkut: ${err.message}`);
+  }
 }
 
 module.exports = {

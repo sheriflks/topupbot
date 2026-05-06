@@ -8,15 +8,17 @@ if (!fs.existsSync(LOG_DIR)) {
 
 const LEVELS = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
 const COLORS = {
-  DEBUG: '\x1b[36m',
-  INFO:  '\x1b[32m',
-  WARN:  '\x1b[33m',
-  ERROR: '\x1b[31m',
-  RESET: '\x1b[0m'
+  DEBUG: '\x1b[36m', // Cyan
+  INFO:  '\x1b[32m', // Green
+  WARN:  '\x1b[33m', // Yellow
+  ERROR: '\x1b[31m', // Red
+  RESET: '\x1b[0m',
+  GRAY:  '\x1b[90m',
+  WHITE: '\x1b[37m'
 };
 
 function getTimestamp() {
-  return new Date().toISOString();
+  return new Date().toLocaleTimeString('id-ID', { hour12: false });
 }
 
 function getLogFile() {
@@ -26,20 +28,31 @@ function getLogFile() {
 
 function writeToFile(message) {
   try {
-    fs.appendFileSync(getLogFile(), message + '\n', 'utf8');
-  } catch (e) {
-    // silent fail on log write
-  }
+    const ts = new Date().toISOString();
+    fs.appendFileSync(getLogFile(), `[${ts}] ${message}\n`, 'utf8');
+  } catch (e) {}
 }
 
 function log(level, module, message, data = null) {
-  const ts = getTimestamp();
-  const dataStr = data ? ` | ${JSON.stringify(data)}` : '';
-  const logLine = `[${ts}] [${level}] [${module}] ${message}${dataStr}`;
-  const coloredLine = `${COLORS[level]}${logLine}${COLORS.RESET}`;
+  const time = getTimestamp();
+  const moduleStr = `[${module.padEnd(12)}]`;
+  const levelStr = level.padEnd(5);
+  
+  let dataStr = '';
+  if (data) {
+    if (typeof data === 'object') {
+      try { dataStr = ` \x1b[90m➜\x1b[0m ${JSON.stringify(data)}`; }
+      catch { dataStr = ` \x1b[90m➜\x1b[0m [Object]`; }
+    } else {
+      dataStr = ` \x1b[90m➜\x1b[0m ${data}`;
+    }
+  }
 
-  console.log(coloredLine);
-  writeToFile(logLine);
+  const logLine = `${COLORS.GRAY}${time}${COLORS.RESET} ${COLORS[level]}${levelStr}${COLORS.RESET} ${COLORS.WHITE}${moduleStr}${COLORS.RESET} ${message}${dataStr}`;
+  
+  console.log(logLine);
+  // Plain version for file
+  writeToFile(`[${level}] [${module}] ${message}${data ? ' | ' + JSON.stringify(data) : ''}`);
 }
 
 const logger = {

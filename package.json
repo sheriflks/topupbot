@@ -5,6 +5,7 @@
   "main": "start.js",
   "scripts": {
     "start": "node start.js",
+    "setup": "node setup.js",
     "dev": "nodemon start.js",
     "reset-wa": "node -e \"require('fs').rmSync('./wa_session', {recursive:true,force:true}); console.log('WA session dihapus.');\""
   },
@@ -13,6 +14,7 @@
     "@whiskeysockets/baileys": "^6.7.9",
     "axios": "^1.6.7",
     "express": "^4.18.2",
+    "moment-timezone": "^0.6.2",
     "node-telegram-bot-api": "^0.64.0",
     "pino": "^8.19.0",
     "qrcode": "^1.5.3",

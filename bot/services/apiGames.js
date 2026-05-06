@@ -14,7 +14,7 @@ const fs     = require('fs');
 const path   = require('path');
 const logger = require('../utils/logger');
 
-const BASE_URL = 'https://v1.apigames.id';
+const BASE_URL = 'https://api.apigames.id'; // Menggunakan api.apigames.id yang lebih stabil
 
 // ─── Baca config fresh setiap call (support update via admin panel) ────────────
 function getCfg() {
@@ -157,12 +157,107 @@ function parseStatus(statusStr) {
 }
 
 // ─── Sync Produk ke productsDB ────────────────────────────────────────────────
-// APIGames tidak punya endpoint list produk publik — produk dikelola manual
-// atau diambil dari VIP Reseller. Fungsi ini sebagai placeholder.
 
 async function syncAllProducts() {
-  logger.info('ApiGames', 'APIGames tidak menyediakan endpoint list produk. Skip sync.');
-  return { synced: 0, source: 'api_games' };
+  const { productsDB } = require('../utils/jsonDB');
+  logger.info('ApiGames', 'Mulai sync semua produk dari APIGames...');
+
+  const { merchant_id } = getCfg().api_games;
+  const sig = signBasic();
+
+  try {
+    // Mencoba fetch produk dengan engine kiosgamer (umumnya untuk game)
+    const res = await httpGet(`/merchant/${merchant_id}/produk`, { 
+      signature: sig,
+      engine: 'kiosgamer' // Menambahkan engine kiosgamer sesuai request user
+    });
+    
+    if (res.status !== 1 || !Array.isArray(res.data)) {
+      logger.warn('ApiGames', 'Gagal ambil list produk (engine: kiosgamer), mencoba tanpa engine...', { msg: res.message });
+      
+      // Fallback: coba ambil tanpa engine
+      const resNoEngine = await httpGet(`/merchant/${merchant_id}/produk`, { signature: sig });
+      if (resNoEngine.status !== 1 || !Array.isArray(resNoEngine.data)) {
+        logger.error('ApiGames', 'Gagal ambil list produk (tanpa engine)', { msg: resNoEngine.message });
+        return { synced: 0, source: 'api_games' };
+      }
+      res.data = resNoEngine.data;
+    }
+
+    const allRaw = res.data;
+    let synced = 0;
+    const db = productsDB.read();
+
+    for (const p of allRaw) {
+      const code = p.code;
+      if (!code) continue;
+
+      const category = detectCategory(p);
+      const subCategory = detectSubCategory(p);
+      const isGame = category === 'game';
+
+      const entry = {
+        code,
+        name: p.product_name || p.name || code,
+        category,
+        subCategory,
+        game: p.game || '',
+        gameCode: p.game_code || '',
+        price: parseInt(p.price || p.harga || 0),
+        status: (p.status || 'active').toLowerCase() === 'active' ? 'active' : 'inactive',
+        isPostpaid: p.type?.toLowerCase() === 'pascabayar' || false,
+        needServer: p.server_id || false,
+        description: p.description || '',
+        source: 'api_games',
+        updatedAt: new Date().toISOString()
+      };
+
+      if (isGame) {
+        if (!db.game) db.game = {};
+        db.game[code] = entry;
+      } else {
+        if (!db.ppob) db.ppob = {};
+        if (!db.ppob[subCategory]) db.ppob[subCategory] = {};
+        db.ppob[subCategory][code] = entry;
+      }
+      synced++;
+    }
+
+    productsDB.write(db);
+    logger.info('ApiGames', `Sync selesai: ${synced} produk`);
+    return { synced, source: 'api_games' };
+  } catch (err) {
+    logger.error('ApiGames', 'Sync produk gagal', { msg: err.message });
+    return { synced: 0, source: 'api_games' };
+  }
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function detectCategory(p) {
+  const cat = (p.category || '').toLowerCase();
+  if (cat.includes('game') || cat.includes('voucher')) return 'game';
+  return 'ppob';
+}
+
+function detectSubCategory(p) {
+  const cat = (p.category || '').toLowerCase();
+  const name = (p.product_name || p.name || '').toLowerCase();
+
+  if (cat.includes('game')) return 'game';
+  if (cat.includes('pulsa')) return 'pulsa';
+  if (cat.includes('data')) return 'data';
+  if (cat.includes('pln') || cat.includes('listrik')) {
+    return name.includes('pascabayar') || name.includes('postpaid') ? 'pln_postpaid' : 'pln_prepaid';
+  }
+  if (cat.includes('pdam')) return 'pdam';
+  if (cat.includes('internet')) return 'internet';
+  if (cat.includes('tv')) return 'tv';
+  if (cat.includes('wallet') || cat.includes('saldo')) return 'ewallet';
+  if (cat.includes('voucher')) return 'voucher';
+  if (cat.includes('toll')) return 'etoll';
+  if (cat.includes('bpjs')) return 'bpjs';
+  return 'lainnya';
 }
 
 module.exports = {

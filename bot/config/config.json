@@ -1,15 +1,15 @@
 {
   "telegram": {
-    "token": "8309725407:AAHh1PcmogSxhJ2hxAPcbR1meuEhj7LQxo8",
-    "admin_id": "7748125685"
+    "token": "8738003744:AAG9UWyT3m4Ik_9IpZ6eQ5-1kSZLbkQwEXU",
+    "admin_id": "6194102379"
   },
   "whatsapp": {
     "admin_number": "6285167879598",
     "session_path": "./wa_session"
   },
   "markup": {
-    "markup_user": 0,
-    "markup_reseller": 0,
+    "markup_user": 10,
+    "markup_reseller": 5,
     "note": "Set 0 = harga real dari API. Isi angka % jika ingin tambah keuntungan. Contoh: 5 = +5%"
   },
   "commission": {
@@ -21,6 +21,10 @@
   "reseller": {
     "upgrade_fee": 50000,
     "benefits": "Harga lebih murah, markup lebih kecil, komisi per transaksi"
+  },
+  "withdraw": {
+    "min_amount": 10000,
+    "note": "Minimal penarikan saldo/komisi."
   },
   "midtrans": {
     "server_key": "YOUR_MIDTRANS_SERVER_KEY",
@@ -43,12 +47,12 @@
     "pin": "YOUR_VIP_RESELLER_PIN"
   },
   "api_games": {
-    "merchant_id": "M260502HUZN6520UT",
-    "secret_key": "8ce8c3ea3a13f8e770d4d099130e1d67f4d565289333bbbe6e9bb7c6a518c57c",
+    "merchant_id": "M260506ZQUB1811VI",
+    "secret_key": "0d069f71b451a9f966dd8611ed038647efef9b6f223074b1aa721644f86beb88",
     "note": "Base URL: https://v1.apigames.id | Docs: https://docs.apigames.id"
   },
   "webhook": {
-    "base_url": "https://yourdomain.com",
+    "base_url": "https://kanz.xqt.my.id",
     "port": 3000,
     "path_midtrans": "/webhook/midtrans",
     "path_pakasir": "/webhook/pakasir",
@@ -60,7 +64,9 @@
     "on_startup": true
   },
   "app": {
-    "name": "TopupBot",
+    "name": "OTP BOT SHERIF",
+    "bot_name": "OTP BOT SHERIF",
+    "bot_thumbnail": "https://telegra.ph/file/0b2b8e8f8e8e8e8e8e8e8.jpg",
     "version": "2.0.0",
     "currency": "IDR",
     "timezone": "Asia/Jakarta"

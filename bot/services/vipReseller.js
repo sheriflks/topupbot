@@ -48,14 +48,31 @@ async function post(endpoint, extra = {}) {
 async function getProducts(type = '') {
   try {
     const params = type ? { type } : {};
-    const res = await post('product', params);
-    if (res.status === 'success' || res.rc === '00') {
+    const res = await post('prepaid', params); // VIP Reseller v2 biasanya pakai 'prepaid' untuk list produk
+    if (res.status === 'success' || res.rc === '00' || res.status === true) {
       return Array.isArray(res.data) ? res.data : (res.products || []);
     }
+    
+    // Jika masih gagal, coba endpoint 'game' atau 'ppob' secara spesifik jika type kosong
+    if (!type) {
+      const gameRes = await post('prepaid', { type: 'game' });
+      const ppobRes = await post('prepaid', { type: 'ppob' });
+      let combined = [];
+      if (gameRes.data) combined = combined.concat(gameRes.data);
+      if (ppobRes.data) combined = combined.concat(ppobRes.data);
+      return combined;
+    }
+
     logger.warn('VipReseller', 'getProducts: status bukan success', { rc: res.rc, msg: res.message });
     return [];
-  } catch {
-    return [];
+  } catch (err) {
+    // Terakhir coba endpoint 'product' (v1)
+    try {
+      const res = await post('product', type ? { type } : {});
+      return Array.isArray(res.data) ? res.data : [];
+    } catch {
+      return [];
+    }
   }
 }
 

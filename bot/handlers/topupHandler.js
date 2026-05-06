@@ -191,8 +191,7 @@ async function showTopupConfirmation(bot, chatId, userId, state) {
       reply_markup: {
         inline_keyboard: [
           [{ text: `💰 Bayar Saldo (${formatCurrency(user?.balance || 0)})`, callback_data: 'pay_balance' }],
-          [{ text: '💳 Midtrans (Transfer/QRIS/dll)', callback_data: 'pay_midtrans' }],
-          [{ text: '🏦 Pakasir', callback_data: 'pay_pakasir' }],
+          [{ text: '📸 QRIS (Otomatis)', callback_data: 'pay_orkut' }],
           [{ text: '❌ Batal', callback_data: 'back_main' }]
         ]
       }
@@ -254,72 +253,62 @@ async function processTopupPayment(bot, chatId, userId, paymentMethod) {
 
     await executeTopupOrder(bot, chatId, userId, orderId, state);
 
-  } else if (paymentMethod === 'midtrans') {
-    const midtrans = require('../services/midtrans');
+  } else if (paymentMethod === 'orkut') {
+    const { getEngine } = require('../services/paymentEngine');
+    const engine = getEngine();
+    
     try {
-      const result = await midtrans.createSnapTransaction({
-        orderId, amount: finalPrice,
-        customerName: user.name, customerPhone: user.phone,
-        itemDetails: [{ id: product.code, price: finalPrice, quantity: 1, name: product.name }]
-      });
-
-      transactionsDB.set(orderId, {
-        id: orderId, userId, type: 'topup',
-        product: { code: product.code, name: product.name },
-        gameUserId, server: server || '',
-        amount: finalPrice, paymentMethod: 'midtrans',
-        paymentUrl: result.redirect_url, paymentToken: result.token,
-        status: 'pending', createdAt: new Date().toISOString()
-      });
-
-      await bot.sendMessage(chatId,
-        `💳 *Pembayaran Midtrans*\n\n` +
-        `${game?.icon || '🎮'} ${product.name}\n` +
-        `💰 Total: *${formatCurrency(finalPrice)}*\n\n` +
-        `Selesaikan pembayaran:`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '💳 Bayar Sekarang', url: result.redirect_url }],
-              [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
-            ]
-          }
+      await bot.sendMessage(chatId, '⏳ Sedang menggenerate QRIS, mohon tunggu...');
+      
+      const { reference, totalPay, qrBuffer, timeoutMs } = await engine.createOrder({
+        userId,
+        username: user.name,
+        baseAmount: finalPrice,
+        meta: {
+          order_type: 'topup',
+          product_code: product.code,
+          product_name: product.name,
+          game_user_id: gameUserId,
+          server: server || ''
         }
-      );
-    } catch (err) {
-      await bot.sendMessage(chatId, `❌ Gagal buat pembayaran: ${err.message}`);
-    }
-
-  } else if (paymentMethod === 'pakasir') {
-    const pakasir = require('../services/pakasir');
-    try {
-      const paymentUrl = pakasir.generatePaymentUrl(orderId, finalPrice);
-
-      transactionsDB.set(orderId, {
-        id: orderId, userId, type: 'topup',
-        product: { code: product.code, name: product.name },
-        gameUserId, server: server || '',
-        amount: finalPrice, paymentMethod: 'pakasir',
-        paymentUrl,
-        status: 'pending', createdAt: new Date().toISOString()
       });
 
-      await bot.sendMessage(chatId,
-        `🏦 *Pembayaran Pakasir*\n\n` +
-        `${game?.icon || '🎮'} ${product.name}\n` +
-        `💰 Total: *${formatCurrency(finalPrice)}*\n\n` +
-        `Selesaikan pembayaran:`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏦 Bayar Sekarang', url: paymentUrl }],
-              [{ text: '🏠 Menu Utama', callback_data: 'back_main' }]
-            ]
-          }
+      const expiresAt = new Date(Date.now() + timeoutMs).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+
+      transactionsDB.set(reference, {
+        id: reference,
+        userId,
+        type: 'topup',
+        product: { code: product.code, name: product.name },
+        gameUserId,
+        server: server || '',
+        amount: finalPrice,
+        totalPay,
+        paymentMethod: 'orkut_qris',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + timeoutMs).toISOString()
+      });
+
+      await bot.sendPhoto(chatId, qrBuffer, {
+        caption:
+          `📸 *PEMBAYARAN QRIS (OTOMATIS)*\n\n` +
+          `${game?.icon || '🎮'} *${product.name}*\n` +
+          `🎯 User ID: \`${gameUserId}\`\n` +
+          `${server ? `🖥️ Server: \`${server}\`\n` : ''}` +
+          `💰 Nominal: *${formatCurrency(finalPrice)}*\n` +
+          `💸 Total Bayar: *${formatCurrency(totalPay)}*\n\n` +
+          `⚠️ *PENTING:* Bayar sesuai nominal hingga 3 digit terakhir!\n\n` +
+          `⏰ Expired: *${expiresAt}*\n\n` +
+          `Setelah bayar, klik tombol *Cek Status* di bawah.`,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔄 Cek Status Pembayaran', callback_data: `check_pay_${reference}` }],
+            [{ text: '❌ Batalkan', callback_data: `cancel_pay_${reference}` }]
+          ]
         }
-      );
+      });
     } catch (err) {
       await bot.sendMessage(chatId, `❌ Gagal buat pembayaran: ${err.message}`);
     }
@@ -452,26 +441,26 @@ async function processCommission(userId, amount) {
 function getDefaultProducts(gameCode) {
   const defaults = {
     FF: [
-      { code: 'FF_70',   name: '70 Diamond FF',   price: 15000,  category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false },
-      { code: 'FF_140',  name: '140 Diamond FF',  price: 29000,  category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false },
-      { code: 'FF_355',  name: '355 Diamond FF',  price: 70000,  category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false },
-      { code: 'FF_720',  name: '720 Diamond FF',  price: 135000, category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false },
-      { code: 'FF_1450', name: '1450 Diamond FF', price: 265000, category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false },
-      { code: 'FF_2180', name: '2180 Diamond FF', price: 395000, category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false }
+      { code: 'FF_70',   name: '70 Diamond FF',   price: 9500,   category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false },
+      { code: 'FF_140',  name: '140 Diamond FF',  price: 19000,  category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false },
+      { code: 'FF_355',  name: '355 Diamond FF',  price: 47000,  category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false },
+      { code: 'FF_720',  name: '720 Diamond FF',  price: 94000,  category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false },
+      { code: 'FF_1450', name: '1450 Diamond FF', price: 188000, category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false },
+      { code: 'FF_2180', name: '2180 Diamond FF', price: 282000, category: 'game', game: 'Free Fire', gameCode: 'FF', status: 'active', needServer: false }
     ],
     ML: [
-      { code: 'ML_86',   name: '86 Diamond',   price: 19000,  category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true },
-      { code: 'ML_172',  name: '172 Diamond',  price: 37000,  category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true },
-      { code: 'ML_257',  name: '257 Diamond',  price: 55000,  category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true },
-      { code: 'ML_514',  name: '514 Diamond',  price: 108000, category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true },
-      { code: 'ML_1070', name: '1070 Diamond', price: 215000, category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true },
-      { code: 'ML_2195', name: '2195 Diamond', price: 430000, category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true }
+      { code: 'ML_86',   name: '86 Diamond',   price: 18500,  category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true },
+      { code: 'ML_172',  name: '172 Diamond',  price: 36500,  category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true },
+      { code: 'ML_257',  name: '257 Diamond',  price: 54500,  category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true },
+      { code: 'ML_514',  name: '514 Diamond',  price: 107000, category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true },
+      { code: 'ML_1070', name: '1070 Diamond', price: 214000, category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true },
+      { code: 'ML_2195', name: '2195 Diamond', price: 428000, category: 'game', game: 'Mobile Legends', gameCode: 'ML', status: 'active', needServer: true }
     ],
     PUBG: [
-      { code: 'PUBG_60',   name: '60 UC',   price: 14000,  category: 'game', game: 'PUBG Mobile', gameCode: 'PUBG', status: 'active', needServer: false },
-      { code: 'PUBG_325',  name: '325 UC',  price: 72000,  category: 'game', game: 'PUBG Mobile', gameCode: 'PUBG', status: 'active', needServer: false },
-      { code: 'PUBG_660',  name: '660 UC',  price: 140000, category: 'game', game: 'PUBG Mobile', gameCode: 'PUBG', status: 'active', needServer: false },
-      { code: 'PUBG_1800', name: '1800 UC', price: 370000, category: 'game', game: 'PUBG Mobile', gameCode: 'PUBG', status: 'active', needServer: false }
+      { code: 'PUBG_60',   name: '60 UC',   price: 12500,  category: 'game', game: 'PUBG Mobile', gameCode: 'PUBG', status: 'active', needServer: false },
+      { code: 'PUBG_325',  name: '325 UC',  price: 64000,  category: 'game', game: 'PUBG Mobile', gameCode: 'PUBG', status: 'active', needServer: false },
+      { code: 'PUBG_660',  name: '660 UC',  price: 128000, category: 'game', game: 'PUBG Mobile', gameCode: 'PUBG', status: 'active', needServer: false },
+      { code: 'PUBG_1800', name: '1800 UC', price: 345000, category: 'game', game: 'PUBG Mobile', gameCode: 'PUBG', status: 'active', needServer: false }
     ],
     GI: [
       { code: 'GI_60',   name: '60 Genesis Crystal',   price: 15000,  category: 'game', game: 'Genshin Impact', gameCode: 'GI', status: 'active', needServer: false },

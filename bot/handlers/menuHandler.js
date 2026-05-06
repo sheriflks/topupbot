@@ -157,6 +157,7 @@ async function handleProfile(bot, chatId, userId) {
       reply_markup: {
         inline_keyboard: [
           [{ text: '💰 Deposit Saldo', callback_data: 'menu_deposit' }],
+          [{ text: '💸 Tarik Saldo', callback_data: 'menu_withdraw' }],
           [{ text: '🔙 Menu Utama', callback_data: 'back_main' }]
         ]
       }
